@@ -8,9 +8,8 @@ KSP-Plugin, das Top-Level-Provider für Hilt ermöglicht: eine mit `@Provide` an
 Top-Level-Funktion wird zur Build-Zeit in ein generiertes `@Module`/`@Provides`-Paar verpackt, weil
 Dagger `@Provides` nur innerhalb eines `@Module` erlaubt.
 
-Der Stand ist ein verifiziertes Grundgerüst — die konkrete API (`@Provide(into = ...)`,
-Namensschema) ist ausdrücklich noch Platzhalter und Gegenstand laufender Diskussion. Siehe
-"Aktueller Stand" in `README.md`.
+API und Namensschema (`@Provide(into = ...)`, ein Modul pro Datei und Component) sind entschieden;
+offene Punkte stehen unter "Aktueller Stand" in `README.md`.
 
 ## Commands
 
@@ -42,10 +41,20 @@ Drei Module, Abhängigkeitsrichtung `sample → processor → annotations`:
 
 Diese Punkte sind bewusst so und beim Umbau leicht kaputtzumachen:
 
+- **Ein Modul pro (Quelldatei, Component)**, benannt nach der Datei:
+  `NavEntry.kt` → `NavEntry_SingletonComponentModule`. Der Name kommt von der Datei, weil ein
+  Package keine zwei Dateien gleichen Namens haben kann, aber sehr wohl mehrere Funktionen
+  `provideNavEntry`. Der Component-Suffix ist nötig, weil `@InstallIn` am Modul hängt.
+- **Overloads werden über die Parametertypen umbenannt** (`provideLabel(Boolean)` →
+  `provideLabelBoolean`). Grund ist eine harte Dagger-Grenze, empirisch verifiziert: *"Cannot have
+  more than one binding method with the same name in a single module"*. Parametertypen statt Index,
+  damit ein später hinzugefügter Overload die bestehenden Namen nicht verschiebt.
 - **Delegation ist voll qualifiziert** (`de.mafo.hilt.provider.sample.provideConfig(...)`). Das
-  generierte Modul liegt im selben Package und die `@Provides`-Funktion trägt denselben Namen wie
-  die Ursprungsfunktion — ein unqualifizierter Aufruf würde auf sie selbst auflösen
+  generierte Modul liegt im selben Package und die `@Provides`-Funktion trägt in der Regel denselben
+  Namen wie die Ursprungsfunktion — ein unqualifizierter Aufruf würde auf sie selbst auflösen
   (Endlosrekursion). Deshalb wird für das Root-Package ein Fehler gemeldet.
+- **Eine Datei wird als Ganzes generiert oder als Ganzes deferred.** Würde ein Teil der Funktionen
+  jetzt und der Rest in einer späteren KSP-Runde geschrieben, kollidierte der Dateiname.
 - **Alle Annotationen außer `@Provide` werden weitergegeben**, damit Scopes, Qualifier und
   Multibinding-Annotationen unverändert funktionieren.
 - Nicht unterstützt und mit `logger.error` abgelehnt: Member-Funktionen, `suspend`, Generics.

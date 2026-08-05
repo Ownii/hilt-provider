@@ -5,6 +5,7 @@ KSP-Plugin, das **Top-Level-Provider für Hilt** ermöglicht. Dagger verlangt, d
 einfache Top-Level-Funktion als Binding ausreicht.
 
 ```kotlin
+// Config.kt
 @Provide
 @Singleton
 fun provideConfig(): Config = Config(baseUrl = "https://example.com")
@@ -15,7 +16,7 @@ wird zu
 ```kotlin
 @Module
 @InstallIn(SingletonComponent::class)
-internal object ProvideConfigHiltModule {
+internal object Config_SingletonComponentModule {
   @Provides
   @Singleton
   public fun provideConfig(): Config = de.example.provideConfig()
@@ -25,6 +26,24 @@ internal object ProvideConfigHiltModule {
 Die Component ist optional — Default ist `SingletonComponent`, andernfalls
 `@Provide(into = ViewModelComponent::class)`. Ein expliziter Rückgabetyp ist ebenfalls optional:
 `@Provide fun provideDependency() = createMyDependency()`.
+
+## Namensschema der generierten Module
+
+Ein Modul pro **Quelldatei und Component**, benannt nach der Datei:
+`NavEntry.kt` → `NavEntry_SingletonComponentModule`.
+
+Der Name kommt bewusst von der Datei und nicht von der Funktion. Ein Package kann keine zwei
+Dateien gleichen Namens enthalten, sehr wohl aber mehrere Funktionen `provideNavEntry` — dasselbe
+`@Provide fun provideNavEntry()` in zehn Feature-Packages ist damit konfliktfrei. Der
+Component-Suffix ist nötig, weil `@InstallIn` am Modul steht: enthält eine Datei Provider für
+mehrere Components, entstehen entsprechend mehrere Module.
+
+Alle `@Provide`-Funktionen einer Datei landen im selben Modul. Bei **Overloads** wird die generierte
+`@Provides`-Funktion nach ihren Parametertypen umbenannt (`provideNavEntry(id: String)` →
+`provideNavEntryString`), weil Dagger überladene Binding-Methoden ablehnt: *"Cannot have more than
+one binding method with the same name in a single module"*. Die Parametertypen als Suffix halten den
+Namen stabil, wenn später ein weiterer Overload dazukommt — ein Index würde die Namen verschieben.
+Der Delegate-Aufruf zeigt weiterhin auf die Originalfunktion.
 
 ## Module
 
@@ -51,21 +70,24 @@ kompiliert im Sample.
 
 Bereits umgesetzt:
 
-- Generierung eines `internal object`-Moduls pro annotierter Top-Level-Funktion
+- Generierung eines `internal object`-Moduls pro Quelldatei und Component (siehe Namensschema)
+- Disambiguierung von Overloads über die Parametertypen
 - `@InstallIn`-Component über den Annotationsparameter `into` (Default `SingletonComponent`)
 - Weitergabe aller übrigen Annotationen (Scopes, Qualifier, Multibindings) an die `@Provides`-Methode
 - Voll qualifizierter Delegate-Aufruf (verhindert Shadowing durch die generierte Funktion)
 - Fehlermeldungen für Member-Funktionen, `suspend`, generische Funktionen und Root-Package
+- Fehlermeldung, wenn das Package den Modulnamen schon belegt
 - Inferierte Rückgabetypen (`fun provideX() = createX()`)
 
 Noch offen (Teil der API-Diskussion):
 
 - Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
-- Namensschema und Sichtbarkeit der generierten Module, Verhalten bei Overloads
+- Sichtbarkeit der generierten Module (aktuell `internal`)
 - Unterstützung für Top-Level-`val`s, `suspend`-Funktionen, Generics
 - Kosmetik: KotlinPoet schreibt weitergegebene Annotationen als `@Named(`value` = "…")`
 - Veröffentlichung (`maven-publish`), Android-Sample, CI
 
 Der Dagger-Graph wird bewusst **nicht** getestet — das wäre ein Test von Dagger. Geprüft wird, dass
 der generierte Code exakt der erwarteten Form entspricht und beim Aufruf an die annotierte Funktion
-delegiert.
+delegiert. Einmalig gegen `dagger-compiler` verifiziert wurde lediglich die Namensfrage bei
+Overloads: ohne Umbenennung bricht Dagger ab, mit Umbenennung entstehen kollisionsfreie Factories.

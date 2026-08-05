@@ -8,7 +8,9 @@ data class Config(val baseUrl: String)
 
 class ApiClient(val config: Config)
 
-class RequestScopedThing
+class Label(val text: String)
+
+class LabelId(val value: Int)
 
 fun createMyDependency() = ApiClient(Config("https://example.com"))
 
@@ -22,4 +24,11 @@ fun provideApiClient() = createMyDependency()
 
 /** Explicit component, even though it is the default here. */
 @Provide(into = SingletonComponent::class)
-fun provideRequestScopedThing(config: Config) = RequestScopedThing().also { println(config) }
+fun provideLabel(): Label = Label("label")
+
+/**
+ * Overload of [provideLabel]. Dagger rejects overloaded binding methods, so the generated
+ * `@Provides` function is named `provideLabelBoolean`.
+ */
+@Provide
+fun provideLabel(shortened: Boolean): LabelId = LabelId(if (shortened) 1 else 0)
