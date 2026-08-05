@@ -82,6 +82,8 @@ Bereits umgesetzt:
 - Disambiguierung von Overloads über die Parametertypen
 - `@InstallIn`-Component über den Annotationsparameter `into` (Default `SingletonComponent`)
 - Weitergabe aller übrigen Annotationen (Scopes, Qualifier, Multibindings) an die `@Provides`-Methode
+- Generierte Module sind `internal`: sie sollen die API-Fläche der Konsumentenmodule nicht
+  vergrößern, da Hilt sie ohnehin über `@InstallIn` einsammelt statt über direkte Referenzen
 - Voll qualifizierter Delegate-Aufruf (verhindert Shadowing durch die generierte Funktion)
 - Fehlermeldungen für alles, was nicht aufrufbar wäre: Member-Deklarationen, `private`,
   Extension-Funktionen und -Properties, `var`, `suspend`, Generics, Root-Package
@@ -91,10 +93,13 @@ Bereits umgesetzt:
 Noch offen (Teil der API-Diskussion):
 
 - Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
-- Sichtbarkeit der generierten Module (aktuell `internal`)
 - Unterstützung für `suspend`-Funktionen und Generics (aktuell abgelehnt)
 - Kosmetik: KotlinPoet schreibt weitergegebene Annotationen als `@Named(`value` = "…")`
-- Veröffentlichung (`maven-publish`), Android-Sample, CI
+- Veröffentlichung (`maven-publish`) und CI
+- Android-Sample mit Hilt-Root in einem anderen Gradle-Modul. Klärt den einzigen offenen Punkt der
+  Modul-Sichtbarkeit: `internal` ist innerhalb eines Moduls verifiziert (Daggers Java-Codegen
+  ignoriert Kotlins `internal`), über Modulgrenzen hinweg ist die Aggregation via
+  `hilt_aggregated_deps` bisher nur begründet, nicht belegt.
 
 Der Dagger-Graph wird bewusst **nicht** getestet — das wäre ein Test von Dagger. Geprüft wird, dass
 der generierte Code exakt der erwarteten Form entspricht und beim Aufruf an die annotierte Funktion
