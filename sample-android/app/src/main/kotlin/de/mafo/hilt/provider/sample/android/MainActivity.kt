@@ -1,6 +1,9 @@
 package de.mafo.hilt.provider.sample.android
 
+import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
+import android.view.Gravity
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -21,6 +24,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(TextView(this).apply { text = "${greeting.text} ($buildFlavour)" })
+        val injected = "${greeting.text} ($buildFlavour)"
+        // Logged as well as shown, so the injection can be verified without looking at the screen.
+        Log.i("hilt-provider", "injected: $injected")
+        setContentView(
+            TextView(this).apply {
+                text = injected
+                textSize = 20f
+                setPadding(48, 48, 48, 48)
+                // Centred, because targetSdk 36 means edge-to-edge: the content view starts at y=0
+                // and anything near the top would sit behind the action bar.
+                gravity = Gravity.CENTER
+                // Explicit colours: the sample declares no theme, so on a device in dark mode the
+                // default text colour would be white on a light window background.
+                setTextColor(Color.BLACK)
+                setBackgroundColor(Color.WHITE)
+            },
+        )
     }
 }

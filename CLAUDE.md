@@ -41,7 +41,11 @@ Drei Module, Abhängigkeitsrichtung `sample → processor → annotations`:
 - **`sample-android:feature` / `sample-android:app`** — der Mehr-Modul-Fall: `@Provide` in einer
   Android-Library, Hilt-Root in der App. Deckt ab, was das JVM-Sample nicht kann, nämlich Hilts
   Aggregation über Modulgrenzen. Achtung: AGP 9 bringt Kotlin-Support eingebaut mit, das
-  `kotlin-android`-Plugin darf hier **nicht** angewandt werden.
+  `kotlin-android`-Plugin darf hier **nicht** angewandt werden. `MainActivity` setzt Textfarbe,
+  Hintergrund und `Gravity.CENTER` bewusst explizit: das Sample hat kein Theme (im Dark Mode wäre
+  der Text sonst weiß auf hell) und `targetSdk 36` bedeutet Edge-to-Edge, wodurch Inhalt am oberen
+  Rand hinter der Action Bar verschwindet. Der injizierte Wert wird zusätzlich per `Log.i` mit Tag
+  `hilt-provider` ausgegeben, damit die Laufzeitprüfung ohne Blick auf den Bildschirm geht.
 
 ### Invarianten des Processors
 

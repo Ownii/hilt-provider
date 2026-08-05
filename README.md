@@ -105,7 +105,6 @@ Noch offen (Teil der API-Diskussion):
 
 - Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
 - Veröffentlichung (`maven-publish`) und CI
-- Ein Lauf des Android-Samples auf Gerät/Emulator (bisher nur zur Compile-Zeit verifiziert)
 
 ### Mehr-Modul-Fall
 
@@ -122,7 +121,9 @@ public final class HiltWrapper_Greeting_SingletonComponentModule {}
 ```
 
 Im generierten Component landet daraus eine vollständige Verdrahtung, inklusive Singleton-Caching
-über `DoubleCheck` und dem qualifizierten `val` aus der Library.
+über `DoubleCheck` und dem qualifizierten `val` aus der Library. Auf einem Gerät (Pixel 9 Pro,
+Android 17) zeigt die App entsprechend `Hello from a library module (sample)` — beide Werte stammen
+aus dem Library-Modul, der Text aus der `@Provide`-Funktion, `(sample)` aus dem `@Provide val`.
 
 ### Bewusst nicht unterstützt
 
