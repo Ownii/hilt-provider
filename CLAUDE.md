@@ -57,7 +57,11 @@ Diese Punkte sind bewusst so und beim Umbau leicht kaputtzumachen:
   jetzt und der Rest in einer späteren KSP-Runde geschrieben, kollidierte der Dateiname.
 - **Alle Annotationen außer `@Provide` werden weitergegeben**, damit Scopes, Qualifier und
   Multibinding-Annotationen unverändert funktionieren.
-- Nicht unterstützt und mit `logger.error` abgelehnt: Member-Funktionen, `suspend`, Generics.
+- Unterstützt werden Top-Level-**Funktionen und Properties** (`val`, auch `by lazy`); die
+  Annotation trägt dafür `@Target(FUNCTION, PROPERTY)`.
+- Abgelehnt wird mit `logger.error`, was der generierte Aufruf nicht erreichen könnte:
+  Member-Deklarationen, `private` (generiertes Modul liegt in einer anderen Datei),
+  Extension-Funktionen/-Properties (kein Receiver), `var`, sowie `suspend` und Generics.
 - Ungültige Symbole werden über `validate()` an die nächste KSP-Runde zurückgegeben (`process`
   liefert die deferred-Liste).
 

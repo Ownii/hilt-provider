@@ -277,6 +277,134 @@ class HiltProviderProcessorTest {
     }
 
     @Test
+    fun `provides top level properties`() {
+        val (compilation, result) = compile(
+            SourceFile.kotlin(
+                "Providers.kt",
+                """
+                package test
+
+                import de.mafo.hilt.provider.Provide
+                import javax.inject.Named
+                import javax.inject.Singleton
+
+                class Config(val baseUrl: String)
+
+                @Provide
+                @Singleton
+                val defaultConfig = Config("https://example.com")
+
+                @Provide
+                @Named("greeting")
+                val lazyGreeting: String by lazy { "hello" }
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
+
+        val generated = compilation.generatedFile("test/Providers_SingletonComponentModule.kt")
+        assertThat(generated).contains("public fun defaultConfig(): Config = test.defaultConfig")
+        assertThat(generated).contains("""@Named(`value` = "greeting")""")
+
+        // A property read must reach the property, not the generated function of the same name.
+        val moduleClass = result.classLoader.loadClass("test.Providers_SingletonComponentModule")
+        val module = moduleClass.getField("INSTANCE").get(null)
+        assertThat(moduleClass.getDeclaredMethod("lazyGreeting").invoke(module) as String)
+            .isEqualTo("hello")
+    }
+
+    @Test
+    fun `disambiguates a property clashing with a function of the same name`() {
+        val (compilation, result) = compile(
+            SourceFile.kotlin(
+                "Providers.kt",
+                """
+                package test
+
+                import de.mafo.hilt.provider.Provide
+
+                class Label(val text: String)
+
+                @Provide
+                val label = Label("property")
+
+                @Provide
+                fun label(prefix: String): Label = Label(prefix)
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
+
+        val generated = compilation.generatedFile("test/Providers_SingletonComponentModule.kt")
+        assertThat(generated).contains("public fun label(): Label = test.label")
+        assertThat(generated).contains("public fun labelString(prefix: String): Label = test.label(prefix)")
+    }
+
+    @Test
+    fun `reports an error for var properties`() {
+        val (_, result) = compile(
+            SourceFile.kotlin(
+                "Providers.kt",
+                """
+                package test
+
+                import de.mafo.hilt.provider.Provide
+
+                @Provide
+                var mutableValue: String = "value"
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
+        assertThat(result.messages).contains("does not support 'var' properties")
+    }
+
+    @Test
+    fun `reports an error for private declarations`() {
+        val (_, result) = compile(
+            SourceFile.kotlin(
+                "Providers.kt",
+                """
+                package test
+
+                import de.mafo.hilt.provider.Provide
+
+                @Provide
+                private fun provideValue(): String = "value"
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
+        assertThat(result.messages).contains("must not be private")
+    }
+
+    @Test
+    fun `reports an error for extension functions`() {
+        val (_, result) = compile(
+            SourceFile.kotlin(
+                "Providers.kt",
+                """
+                package test
+
+                import de.mafo.hilt.provider.Provide
+
+                class Config
+
+                @Provide
+                fun Config.provideValue(): String = "value"
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
+        assertThat(result.messages).contains("does not support extension functions")
+    }
+
+    @Test
     fun `reports an error when the module name is already taken`() {
         val (_, result) = compile(
             SourceFile.kotlin(
@@ -317,7 +445,7 @@ class HiltProviderProcessorTest {
         )
 
         assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
-        assertThat(result.messages).contains("must be top-level")
+        assertThat(result.messages).contains("must be applied to top-level declarations")
     }
 
     private fun compile(vararg sources: SourceFile): Pair<KotlinCompilation, JvmCompilationResult> {

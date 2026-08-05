@@ -2,7 +2,7 @@
 
 KSP-Plugin, das **Top-Level-Provider für Hilt** ermöglicht. Dagger verlangt, dass jede
 `@Provides`-Methode in einem `@Module` liegt. Dieses Plugin generiert dieses Modul, sodass eine
-einfache Top-Level-Funktion als Binding ausreicht.
+einfache Top-Level-Funktion oder ein Top-Level-`val` als Binding ausreicht.
 
 ```kotlin
 // Config.kt
@@ -26,6 +26,13 @@ internal object Config_SingletonComponentModule {
 Die Component ist optional — Default ist `SingletonComponent`, andernfalls
 `@Provide(into = ViewModelComponent::class)`. Ein expliziter Rückgabetyp ist ebenfalls optional:
 `@Provide fun provideDependency() = createMyDependency()`.
+
+Top-Level-`val`s funktionieren genauso; die generierte `@Provides`-Funktion liest die Property:
+
+```kotlin
+@Provide
+val defaultTimeoutSeconds = 30
+```
 
 ## Namensschema der generierten Module
 
@@ -70,12 +77,14 @@ kompiliert im Sample.
 
 Bereits umgesetzt:
 
+- Top-Level-Funktionen und Top-Level-`val`s (inkl. `by lazy`)
 - Generierung eines `internal object`-Moduls pro Quelldatei und Component (siehe Namensschema)
 - Disambiguierung von Overloads über die Parametertypen
 - `@InstallIn`-Component über den Annotationsparameter `into` (Default `SingletonComponent`)
 - Weitergabe aller übrigen Annotationen (Scopes, Qualifier, Multibindings) an die `@Provides`-Methode
 - Voll qualifizierter Delegate-Aufruf (verhindert Shadowing durch die generierte Funktion)
-- Fehlermeldungen für Member-Funktionen, `suspend`, generische Funktionen und Root-Package
+- Fehlermeldungen für alles, was nicht aufrufbar wäre: Member-Deklarationen, `private`,
+  Extension-Funktionen und -Properties, `var`, `suspend`, Generics, Root-Package
 - Fehlermeldung, wenn das Package den Modulnamen schon belegt
 - Inferierte Rückgabetypen (`fun provideX() = createX()`)
 
@@ -83,7 +92,7 @@ Noch offen (Teil der API-Diskussion):
 
 - Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
 - Sichtbarkeit der generierten Module (aktuell `internal`)
-- Unterstützung für Top-Level-`val`s, `suspend`-Funktionen, Generics
+- Unterstützung für `suspend`-Funktionen und Generics (aktuell abgelehnt)
 - Kosmetik: KotlinPoet schreibt weitergegebene Annotationen als `@Named(`value` = "…")`
 - Veröffentlichung (`maven-publish`), Android-Sample, CI
 

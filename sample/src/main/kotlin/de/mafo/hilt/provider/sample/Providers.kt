@@ -18,6 +18,10 @@ fun createMyDependency() = ApiClient(Config("https://example.com"))
 @Singleton
 fun provideConfig(): Config = Config(baseUrl = "https://example.com")
 
+/** Top-level property – the generated `@Provides` function reads it. */
+@Provide
+val defaultTimeoutSeconds = 30
+
 /** Inferred return type – the processor resolves it. */
 @Provide
 fun provideApiClient() = createMyDependency()
