@@ -1,0 +1,69 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Was das Projekt ist
+
+KSP-Plugin, das Top-Level-Provider für Hilt ermöglicht: eine mit `@HiltProvider` annotierte
+Top-Level-Funktion wird zur Build-Zeit in ein generiertes `@Module`/`@Provides`-Paar verpackt, weil
+Dagger `@Provides` nur innerhalb eines `@Module` erlaubt.
+
+Der Stand ist ein verifiziertes Grundgerüst — die konkrete API (`@HiltProvider`, Parameter,
+Namensschema) ist ausdrücklich noch Platzhalter und Gegenstand laufender Diskussion. Siehe
+"Aktueller Stand" in `README.md`.
+
+## Commands
+
+```bash
+./gradlew build                       # alle Module + Tests
+./gradlew :processor:test             # nur Processor-Tests
+./gradlew :processor:test --tests '*HiltProviderProcessorTest.generates*'   # einzelner Test
+./gradlew :sample:kspKotlin           # Generierung im Sample ausführen
+```
+
+Generierten Code des Samples ansehen (schnellster Weg, eine Processor-Änderung zu prüfen):
+`sample/build/generated/ksp/main/kotlin/de/mafo/hilt/provider/sample/`
+
+## Architektur
+
+Drei Module, Abhängigkeitsrichtung `sample → processor → annotations`:
+
+- **`annotations`** — die öffentliche API-Fläche (`de.mafo.hilt.provider.HiltProvider`). Exponiert
+  `hilt-core` als `api`-Abhängigkeit, weil `SingletonComponent` als Default des
+  `component`-Parameters Teil der Annotationssignatur ist.
+- **`processor`** — `HiltProviderProcessor` (KSP + KotlinPoet) plus `HiltProviderProcessorProvider`.
+  Der Provider muss in
+  `processor/src/main/resources/META-INF/services/com.google.devtools.ksp.processing.SymbolProcessorProvider`
+  registriert bleiben, sonst läuft der Processor stillschweigend nicht.
+- **`sample`** — reines Verifikationsmodul: wendet `ksp(project(":processor"))` an und beweist, dass
+  der generierte Code kompiliert.
+
+### Invarianten des Processors
+
+Diese Punkte sind bewusst so und beim Umbau leicht kaputtzumachen:
+
+- **Delegation ist voll qualifiziert** (`de.mafo.hilt.provider.sample.provideConfig(...)`). Das
+  generierte Modul liegt im selben Package und die `@Provides`-Funktion trägt denselben Namen wie
+  die Ursprungsfunktion — ein unqualifizierter Aufruf würde auf sie selbst auflösen
+  (Endlosrekursion). Deshalb wird für das Root-Package ein Fehler gemeldet.
+- **Alle Annotationen außer `@HiltProvider` werden weitergegeben**, damit Scopes, Qualifier und
+  Multibinding-Annotationen unverändert funktionieren.
+- Nicht unterstützt und mit `logger.error` abgelehnt: Member-Funktionen, `suspend`, Generics.
+- Ungültige Symbole werden über `validate()` an die nächste KSP-Runde zurückgegeben (`process`
+  liefert die deferred-Liste).
+
+### Tests
+
+`processor/src/test/.../HiltProviderProcessorTest.kt` nutzt kotlin-compile-testing (kctfork) im
+**KSP2-Modus** (`useKsp2()`); generierte Dateien werden über `compilation.kspSourcesDir` gelesen.
+Die dafür nötigen Opt-ins (`ExperimentalCompilerApi`, `KspExperimental`) stehen in
+`processor/build.gradle.kts` — ohne sie schlägt schon die Test-Kompilierung fehl.
+
+## Build-Konventionen
+
+- Versionen ausschließlich über `gradle/libs.versions.toml` (Version Catalog, `libs.*`-Aliase).
+- JVM-Target ist bewusst **17**, obwohl lokal JDK 25 baut — die Artefakte müssen für
+  Android-/Hilt-Konsument*innen nutzbar bleiben. Kein `jvmToolchain`-Block; stattdessen
+  `compilerOptions.jvmTarget` plus `java.sourceCompatibility/targetCompatibility` pro Modul.
+- KSP-Version ist von der Kotlin-Version entkoppelt (eigenes Schema, aktuell `2.3.11`); beide
+  getrennt anheben und danach `./gradlew build` prüfen.
