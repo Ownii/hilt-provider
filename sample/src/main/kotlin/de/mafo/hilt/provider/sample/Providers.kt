@@ -2,6 +2,7 @@ package de.mafo.hilt.provider.sample
 
 import dagger.hilt.components.SingletonComponent
 import de.mafo.hilt.provider.Provide
+import javax.inject.Named
 import javax.inject.Singleton
 
 data class Config(val baseUrl: String)
@@ -36,3 +37,8 @@ fun provideLabel(): Label = Label("label")
  */
 @Provide
 fun provideLabel(shortened: Boolean): LabelId = LabelId(if (shortened) 1 else 0)
+
+/** Qualifiers are forwarded verbatim, so Dagger resolves the qualified binding. */
+@Provide
+@Named("base-url")
+fun provideBaseUrl(): String = "https://example.com"

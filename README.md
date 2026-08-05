@@ -81,7 +81,10 @@ Bereits umgesetzt:
 - Generierung eines `internal object`-Moduls pro Quelldatei und Component (siehe Namensschema)
 - Disambiguierung von Overloads über die Parametertypen
 - `@InstallIn`-Component über den Annotationsparameter `into` (Default `SingletonComponent`)
-- Weitergabe aller übrigen Annotationen (Scopes, Qualifier, Multibindings) an die `@Provides`-Methode
+- Weitergabe aller übrigen Annotationen (Scopes, Qualifier, Multibindings) an die `@Provides`-Methode.
+  Gegen `dagger-compiler` verifiziert: ein `@Named`-Entry-Point löst das qualifizierte Binding auf,
+  für Funktionen wie für `val`s. KotlinPoet schreibt den Argumentnamen dabei aus und escapt ihn
+  (``@Named(`value` = "base-url")``) — gültiges Kotlin und bytecode-identisch, bleibt so
 - Generierte Module sind `internal`: sie sollen die API-Fläche der Konsumentenmodule nicht
   vergrößern, da Hilt sie ohnehin über `@InstallIn` einsammelt statt über direkte Referenzen
 - Voll qualifizierter Delegate-Aufruf (verhindert Shadowing durch die generierte Funktion)
@@ -94,7 +97,6 @@ Noch offen (Teil der API-Diskussion):
 
 - Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
 - Unterstützung für `suspend`-Funktionen und Generics (aktuell abgelehnt)
-- Kosmetik: KotlinPoet schreibt weitergegebene Annotationen als `@Named(`value` = "…")`
 - Veröffentlichung (`maven-publish`) und CI
 - Android-Sample mit Hilt-Root in einem anderen Gradle-Modul. Klärt den einzigen offenen Punkt der
   Modul-Sichtbarkeit: `internal` ist innerhalb eines Moduls verifiziert (Daggers Java-Codegen
