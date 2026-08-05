@@ -22,13 +22,13 @@ class HiltProviderProcessorTest {
                 """
                 package test
 
-                import de.mafo.hilt.provider.HiltProvider
+                import de.mafo.hilt.provider.Provide
                 import javax.inject.Singleton
 
                 class Config
                 class ApiClient(val config: Config)
 
-                @HiltProvider
+                @Provide
                 @Singleton
                 fun provideApiClient(config: Config): ApiClient = ApiClient(config)
                 """.trimIndent(),
@@ -51,6 +51,53 @@ class HiltProviderProcessorTest {
     }
 
     @Test
+    fun `installs the module into the component given by the into argument`() {
+        val (compilation, result) = compile(
+            SourceFile.kotlin(
+                "Providers.kt",
+                """
+                package test
+
+                import de.mafo.hilt.provider.Provide
+
+                class CustomComponent
+
+                @Provide(into = CustomComponent::class)
+                fun provideValue(): String = "value"
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
+        assertThat(compilation.generatedFile("test/ProvideValueHiltModule.kt"))
+            .contains("@InstallIn(CustomComponent::class)")
+    }
+
+    @Test
+    fun `resolves inferred return types`() {
+        val (compilation, result) = compile(
+            SourceFile.kotlin(
+                "Providers.kt",
+                """
+                package test
+
+                import de.mafo.hilt.provider.Provide
+
+                class MyDependency
+                fun createMyDependency() = MyDependency()
+
+                @Provide
+                fun provideDependency() = createMyDependency()
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
+        assertThat(compilation.generatedFile("test/ProvideDependencyHiltModule.kt"))
+            .contains("public fun provideDependency(): MyDependency = test.provideDependency()")
+    }
+
+    @Test
     fun `reports an error for member functions`() {
         val (_, result) = compile(
             SourceFile.kotlin(
@@ -58,10 +105,10 @@ class HiltProviderProcessorTest {
                 """
                 package test
 
-                import de.mafo.hilt.provider.HiltProvider
+                import de.mafo.hilt.provider.Provide
 
                 class Holder {
-                    @HiltProvider
+                    @Provide
                     fun provideValue(): String = "value"
                 }
                 """.trimIndent(),

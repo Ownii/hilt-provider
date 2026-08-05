@@ -11,18 +11,18 @@ import kotlin.reflect.KClass
  * annotated function.
  *
  * ```kotlin
- * @HiltProvider
+ * @Provide
  * @Singleton
- * fun provideHttpClient(config: Config): HttpClient = HttpClient(config)
+ * fun provideDependency() = createMyDependency()
  * ```
  *
- * Note: this is the placeholder shape used to wire up the build. The final API is still open for
- * discussion.
+ * Scopes, qualifiers and multibinding annotations are forwarded to the generated `@Provides`
+ * function, so they keep working as usual.
  *
- * @param component the Hilt component the generated module is installed in.
+ * @param into the Hilt component the generated module is installed in.
  */
 @Target(AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.BINARY)
-public annotation class HiltProvider(
-    val component: KClass<*> = SingletonComponent::class,
+public annotation class Provide(
+    val into: KClass<*> = SingletonComponent::class,
 )

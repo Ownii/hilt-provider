@@ -1,15 +1,25 @@
 package de.mafo.hilt.provider.sample
 
-import de.mafo.hilt.provider.HiltProvider
+import dagger.hilt.components.SingletonComponent
+import de.mafo.hilt.provider.Provide
 import javax.inject.Singleton
 
 data class Config(val baseUrl: String)
 
 class ApiClient(val config: Config)
 
-@HiltProvider
+class RequestScopedThing
+
+fun createMyDependency() = ApiClient(Config("https://example.com"))
+
+@Provide
 @Singleton
 fun provideConfig(): Config = Config(baseUrl = "https://example.com")
 
-@HiltProvider
-fun provideApiClient(config: Config): ApiClient = ApiClient(config)
+/** Inferred return type – the processor resolves it. */
+@Provide
+fun provideApiClient() = createMyDependency()
+
+/** Explicit component, even though it is the default here. */
+@Provide(into = SingletonComponent::class)
+fun provideRequestScopedThing(config: Config) = RequestScopedThing().also { println(config) }

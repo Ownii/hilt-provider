@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Was das Projekt ist
 
-KSP-Plugin, das Top-Level-Provider für Hilt ermöglicht: eine mit `@HiltProvider` annotierte
+KSP-Plugin, das Top-Level-Provider für Hilt ermöglicht: eine mit `@Provide` annotierte
 Top-Level-Funktion wird zur Build-Zeit in ein generiertes `@Module`/`@Provides`-Paar verpackt, weil
 Dagger `@Provides` nur innerhalb eines `@Module` erlaubt.
 
-Der Stand ist ein verifiziertes Grundgerüst — die konkrete API (`@HiltProvider`, Parameter,
+Der Stand ist ein verifiziertes Grundgerüst — die konkrete API (`@Provide(into = ...)`,
 Namensschema) ist ausdrücklich noch Platzhalter und Gegenstand laufender Diskussion. Siehe
 "Aktueller Stand" in `README.md`.
 
@@ -28,9 +28,9 @@ Generierten Code des Samples ansehen (schnellster Weg, eine Processor-Änderung 
 
 Drei Module, Abhängigkeitsrichtung `sample → processor → annotations`:
 
-- **`annotations`** — die öffentliche API-Fläche (`de.mafo.hilt.provider.HiltProvider`). Exponiert
+- **`annotations`** — die öffentliche API-Fläche (`de.mafo.hilt.provider.Provide`). Exponiert
   `hilt-core` als `api`-Abhängigkeit, weil `SingletonComponent` als Default des
-  `component`-Parameters Teil der Annotationssignatur ist.
+  `into`-Parameters Teil der Annotationssignatur ist.
 - **`processor`** — `HiltProviderProcessor` (KSP + KotlinPoet) plus `HiltProviderProcessorProvider`.
   Der Provider muss in
   `processor/src/main/resources/META-INF/services/com.google.devtools.ksp.processing.SymbolProcessorProvider`
@@ -46,7 +46,7 @@ Diese Punkte sind bewusst so und beim Umbau leicht kaputtzumachen:
   generierte Modul liegt im selben Package und die `@Provides`-Funktion trägt denselben Namen wie
   die Ursprungsfunktion — ein unqualifizierter Aufruf würde auf sie selbst auflösen
   (Endlosrekursion). Deshalb wird für das Root-Package ein Fehler gemeldet.
-- **Alle Annotationen außer `@HiltProvider` werden weitergegeben**, damit Scopes, Qualifier und
+- **Alle Annotationen außer `@Provide` werden weitergegeben**, damit Scopes, Qualifier und
   Multibinding-Annotationen unverändert funktionieren.
 - Nicht unterstützt und mit `logger.error` abgelehnt: Member-Funktionen, `suspend`, Generics.
 - Ungültige Symbole werden über `validate()` an die nächste KSP-Runde zurückgegeben (`process`

@@ -18,17 +18,18 @@ dependencies {
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-        optIn.addAll(
-            "com.google.devtools.ksp.KspExperimental",
-            // kotlin-compile-testing exposes the compiler plugin API in its test-only DSL.
-            "org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi",
-        )
+        optIn.add("com.google.devtools.ksp.KspExperimental")
     }
 }
 
 java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
+}
+
+// kotlin-compile-testing exposes the compiler plugin API in its DSL – test sources only.
+tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
+    compilerOptions.optIn.add("org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi")
 }
 
 tasks.test {

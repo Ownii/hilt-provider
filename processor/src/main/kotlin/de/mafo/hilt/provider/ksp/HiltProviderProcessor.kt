@@ -1,15 +1,16 @@
 package de.mafo.hilt.provider.ksp
 
 import com.google.devtools.ksp.processing.CodeGenerator
-import com.google.devtools.ksp.validate
 import com.google.devtools.ksp.processing.Dependencies
 import com.google.devtools.ksp.processing.KSPLogger
 import com.google.devtools.ksp.processing.Resolver
 import com.google.devtools.ksp.processing.SymbolProcessor
 import com.google.devtools.ksp.symbol.KSAnnotated
+import com.google.devtools.ksp.symbol.KSAnnotation
 import com.google.devtools.ksp.symbol.KSFunctionDeclaration
 import com.google.devtools.ksp.symbol.KSType
 import com.google.devtools.ksp.symbol.Modifier
+import com.google.devtools.ksp.validate
 import com.squareup.kotlinpoet.AnnotationSpec
 import com.squareup.kotlinpoet.ClassName
 import com.squareup.kotlinpoet.CodeBlock
@@ -23,7 +24,7 @@ import com.squareup.kotlinpoet.ksp.toTypeName
 import com.squareup.kotlinpoet.ksp.writeTo
 
 /**
- * Generates a Hilt `@Module` for every top-level function annotated with `@HiltProvider`.
+ * Generates a Hilt `@Module` for every top-level function annotated with `@Provide`.
  *
  * The generated module simply delegates to the annotated function, which makes the function itself
  * a valid Dagger binding without the boilerplate object/module wrapper.
@@ -34,7 +35,7 @@ internal class HiltProviderProcessor(
 ) : SymbolProcessor {
 
     override fun process(resolver: Resolver): List<KSAnnotated> {
-        val symbols = resolver.getSymbolsWithAnnotation(HILT_PROVIDER_ANNOTATION).toList()
+        val symbols = resolver.getSymbolsWithAnnotation(PROVIDE_ANNOTATION).toList()
         val deferred = symbols.filterNot { it.validate() }
 
         symbols
@@ -42,7 +43,7 @@ internal class HiltProviderProcessor(
             .forEach { symbol ->
                 when (symbol) {
                     is KSFunctionDeclaration -> generate(symbol)
-                    else -> logger.error("@HiltProvider is only applicable to functions.", symbol)
+                    else -> logger.error("@Provide is only applicable to functions.", symbol)
                 }
             }
 
@@ -50,29 +51,34 @@ internal class HiltProviderProcessor(
     }
 
     private fun generate(function: KSFunctionDeclaration) {
+        val functionName = function.simpleName.asString()
+        val packageName = function.packageName.asString()
+
         if (!function.isTopLevel()) {
-            logger.error("@HiltProvider functions must be top-level declarations.", function)
+            logger.error("@Provide functions must be top-level declarations.", function)
             return
         }
         if (Modifier.SUSPEND in function.modifiers) {
-            logger.error("@HiltProvider does not support suspend functions.", function)
+            logger.error("@Provide does not support suspend functions.", function)
             return
         }
         if (function.typeParameters.isNotEmpty()) {
-            logger.error("@HiltProvider does not support generic functions.", function)
+            logger.error("@Provide does not support generic functions.", function)
+            return
+        }
+        if (packageName.isEmpty()) {
+            logger.error("@Provide functions must not live in the root package.", function)
             return
         }
 
         val containingFile = function.containingFile ?: return
-        val packageName = function.packageName.asString()
-        val functionName = function.simpleName.asString()
         val returnType = function.returnType?.resolve()?.toTypeName() ?: run {
             logger.error("Unable to resolve the return type of '$functionName'.", function)
             return
         }
 
-        val component = function.hiltProviderComponent() ?: SINGLETON_COMPONENT
-        val moduleName = "${functionName.replaceFirstChar(Char::uppercaseChar)}${MODULE_SUFFIX}"
+        val component = function.installInComponent() ?: SINGLETON_COMPONENT
+        val moduleName = "${functionName.replaceFirstChar(Char::uppercaseChar)}$MODULE_SUFFIX"
 
         val parameters = function.parameters.map { parameter ->
             ParameterSpec
@@ -87,14 +93,10 @@ internal class HiltProviderProcessor(
         // Everything except our own marker is forwarded, so scopes (@Singleton), qualifiers and
         // multibinding annotations keep working as usual.
         val forwardedAnnotations = function.annotations
-            .filterNot { it.annotationType.resolve().declaration.qualifiedName?.asString() == HILT_PROVIDER_ANNOTATION }
+            .filterNot { it.isProvideAnnotation() }
             .map { it.toAnnotationSpec() }
             .toList()
 
-        if (packageName.isEmpty()) {
-            logger.error("@HiltProvider functions must not live in the root package.", function)
-            return
-        }
         // The generated function keeps the original name for readable Dagger error messages, which
         // means the call has to be fully qualified – otherwise it would resolve to itself.
         val delegate = "$packageName.$functionName"
@@ -129,10 +131,14 @@ internal class HiltProviderProcessor(
 
     private fun KSFunctionDeclaration.isTopLevel(): Boolean = parentDeclaration == null
 
-    private fun KSFunctionDeclaration.hiltProviderComponent(): ClassName? = annotations
-        .firstOrNull { it.annotationType.resolve().declaration.qualifiedName?.asString() == HILT_PROVIDER_ANNOTATION }
+    private fun KSAnnotation.isProvideAnnotation(): Boolean =
+        annotationType.resolve().declaration.qualifiedName?.asString() == PROVIDE_ANNOTATION
+
+    /** The component from `@Provide(into = ...)`, or `null` when the default applies. */
+    private fun KSFunctionDeclaration.installInComponent(): ClassName? = annotations
+        .firstOrNull { it.isProvideAnnotation() }
         ?.arguments
-        ?.firstOrNull { it.name?.asString() == "component" }
+        ?.firstOrNull { it.name?.asString() == INTO_ARGUMENT }
         ?.value
         ?.let { it as? KSType }
         ?.declaration
@@ -141,7 +147,8 @@ internal class HiltProviderProcessor(
         ?.let(ClassName::bestGuess)
 
     private companion object {
-        const val HILT_PROVIDER_ANNOTATION = "de.mafo.hilt.provider.HiltProvider"
+        const val PROVIDE_ANNOTATION = "de.mafo.hilt.provider.Provide"
+        const val INTO_ARGUMENT = "into"
         const val MODULE_SUFFIX = "HiltModule"
 
         val MODULE = ClassName("dagger", "Module")
