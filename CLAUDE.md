@@ -54,6 +54,12 @@ Diese Punkte sind bewusst so und beim Umbau leicht kaputtzumachen:
 
 ### Tests
 
+Testphilosophie: der Dagger-Graph wird bewusst nicht getestet (das wäre ein Test von Dagger).
+Geprüft wird stattdessen (a) die exakte Form der generierten Datei per Vollvergleich und (b) das
+Verhalten — ein Test lädt das generierte Modul über `result.classLoader` und ruft die
+`@Provides`-Funktion per Reflection auf. Nur dieser Aufruf beweist, dass die Delegation nicht auf
+sich selbst zeigt.
+
 `processor/src/test/.../HiltProviderProcessorTest.kt` nutzt kotlin-compile-testing (kctfork) im
 **KSP2-Modus** (`useKsp2()`); generierte Dateien werden über `compilation.kspSourcesDir` gelesen.
 Die dafür nötigen Opt-ins (`ExperimentalCompilerApi`, `KspExperimental`) stehen in

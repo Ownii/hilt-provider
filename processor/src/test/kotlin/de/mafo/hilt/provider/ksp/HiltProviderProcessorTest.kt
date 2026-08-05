@@ -2,6 +2,7 @@ package de.mafo.hilt.provider.ksp
 
 import assertk.assertThat
 import assertk.assertions.contains
+import assertk.assertions.doesNotContain
 import assertk.assertions.isEqualTo
 import com.tschuchort.compiletesting.JvmCompilationResult
 import com.tschuchort.compiletesting.KotlinCompilation
@@ -15,7 +16,7 @@ import org.junit.jupiter.api.Test
 class HiltProviderProcessorTest {
 
     @Test
-    fun `generates a hilt module delegating to the top level function`() {
+    fun `generates a hilt module for a top level function`() {
         val (compilation, result) = compile(
             SourceFile.kotlin(
                 "Providers.kt",
@@ -36,18 +37,56 @@ class HiltProviderProcessorTest {
         )
 
         assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
+        assertThat(compilation.generatedFile("test/ProvideApiClientHiltModule.kt")).isEqualTo(
+            """
+            package test
 
-        val generated = compilation.generatedFile("test/ProvideApiClientHiltModule.kt")
-        assertThat(generated).contains("@Module")
-        assertThat(generated).contains("@InstallIn(SingletonComponent::class)")
-        assertThat(generated).contains("internal object ProvideApiClientHiltModule")
-        assertThat(generated).contains("@Provides")
-        assertThat(generated).contains("@Singleton")
-        // The delegation has to be fully qualified, otherwise the call would resolve to the
-        // generated function itself.
-        assertThat(generated).contains(
-            "public fun provideApiClient(config: Config): ApiClient = test.provideApiClient(config)",
+            import dagger.Module
+            import dagger.Provides
+            import dagger.hilt.InstallIn
+            import dagger.hilt.components.SingletonComponent
+            import javax.inject.Singleton
+
+            @Module
+            @InstallIn(SingletonComponent::class)
+            internal object ProvideApiClientHiltModule {
+              @Provides
+              @Singleton
+              public fun provideApiClient(config: Config): ApiClient = test.provideApiClient(config)
+            }
+
+            """.trimIndent(),
         )
+    }
+
+    /**
+     * The generated `@Provides` function shares its name with the annotated function, so an
+     * unqualified call would resolve to itself. Only actually invoking the generated module proves
+     * that the delegation reaches the original function instead of recursing.
+     */
+    @Test
+    fun `generated module delegates to the annotated function`() {
+        val (_, result) = compile(
+            SourceFile.kotlin(
+                "Providers.kt",
+                """
+                package test
+
+                import de.mafo.hilt.provider.Provide
+
+                @Provide
+                fun provideGreeting(): String = "hello"
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
+
+        val moduleClass = result.classLoader.loadClass("test.ProvideGreetingHiltModule")
+        val module = moduleClass.getField("INSTANCE").get(null)
+        val provided = moduleClass.getDeclaredMethod("provideGreeting").invoke(module)
+
+        assertThat(provided as String).isEqualTo("hello")
     }
 
     @Test
@@ -95,6 +134,37 @@ class HiltProviderProcessorTest {
         assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
         assertThat(compilation.generatedFile("test/ProvideDependencyHiltModule.kt"))
             .contains("public fun provideDependency(): MyDependency = test.provideDependency()")
+    }
+
+    @Test
+    fun `forwards qualifier annotations to the provides function`() {
+        val (compilation, result) = compile(
+            SourceFile.kotlin(
+                "Providers.kt",
+                """
+                package test
+
+                import de.mafo.hilt.provider.Provide
+                import javax.inject.Named
+                import javax.inject.Singleton
+
+                @Provide
+                @Singleton
+                @Named("base-url")
+                fun provideBaseUrl(): String = "https://example.com"
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
+
+        val generated = compilation.generatedFile("test/ProvideBaseUrlHiltModule.kt")
+        assertThat(generated).contains("@Singleton")
+        // KotlinPoet spells out the argument name and escapes `value`, since it is a soft keyword.
+        assertThat(generated).contains("""@Named(`value` = "base-url")""")
+        assertThat(generated).contains("@Provides")
+        // Our own marker must not leak into the generated code.
+        assertThat(generated).doesNotContain("@Provide\n")
     }
 
     @Test

@@ -63,6 +63,9 @@ Noch offen (Teil der API-Diskussion):
 - Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
 - Namensschema und Sichtbarkeit der generierten Module, Verhalten bei Overloads
 - Unterstützung für Top-Level-`val`s, `suspend`-Funktionen, Generics
-- Anbindung des Hilt-Compilers im Sample (aktuell wird nur die Kompilierbarkeit des generierten
-  Codes geprüft, nicht der vollständige Dagger-Graph)
+- Kosmetik: KotlinPoet schreibt weitergegebene Annotationen als `@Named(`value` = "…")`
 - Veröffentlichung (`maven-publish`), Android-Sample, CI
+
+Der Dagger-Graph wird bewusst **nicht** getestet — das wäre ein Test von Dagger. Geprüft wird, dass
+der generierte Code exakt der erwarteten Form entspricht und beim Aufruf an die annotierte Funktion
+delegiert.
