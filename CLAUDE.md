@@ -17,7 +17,8 @@ offene Punkte stehen unter "Aktueller Stand" in `README.md`.
 ./gradlew build                       # alle Module + Tests
 ./gradlew :processor:test             # nur Processor-Tests
 ./gradlew :processor:test --tests '*HiltProviderProcessorTest.generates*'   # einzelner Test
-./gradlew :sample:kspKotlin           # Generierung im Sample ausführen
+./gradlew :sample:kspKotlin           # Generierung im JVM-Sample ausführen
+./gradlew :sample-android:app:assembleDebug   # Android-Sample (braucht local.properties mit sdk.dir)
 ```
 
 Generierten Code des Samples ansehen (schnellster Weg, eine Processor-Änderung zu prüfen):
@@ -34,8 +35,13 @@ Drei Module, Abhängigkeitsrichtung `sample → processor → annotations`:
   Der Provider muss in
   `processor/src/main/resources/META-INF/services/com.google.devtools.ksp.processing.SymbolProcessorProvider`
   registriert bleiben, sonst läuft der Processor stillschweigend nicht.
-- **`sample`** — reines Verifikationsmodul: wendet `ksp(project(":processor"))` an und beweist, dass
-  der generierte Code kompiliert.
+- **`sample`** — reines Verifikationsmodul (JVM): wendet `ksp(project(":processor"))` an und beweist,
+  dass der generierte Code kompiliert. Kein `dagger-compiler` — Dagger-Verhalten wird bei Bedarf mit
+  Wegwerf-Proben geprüft, nicht dauerhaft im Build.
+- **`sample-android:feature` / `sample-android:app`** — der Mehr-Modul-Fall: `@Provide` in einer
+  Android-Library, Hilt-Root in der App. Deckt ab, was das JVM-Sample nicht kann, nämlich Hilts
+  Aggregation über Modulgrenzen. Achtung: AGP 9 bringt Kotlin-Support eingebaut mit, das
+  `kotlin-android`-Plugin darf hier **nicht** angewandt werden.
 
 ### Invarianten des Processors
 
@@ -62,6 +68,9 @@ Diese Punkte sind bewusst so und beim Umbau leicht kaputtzumachen:
 - Abgelehnt wird mit `logger.error`, was der generierte Aufruf nicht erreichen könnte:
   Member-Deklarationen, `private` (generiertes Modul liegt in einer anderen Datei),
   Extension-Funktionen/-Properties (kein Receiver), `var`, sowie `suspend` und Generics.
+- **`internal` ist für Hilt unproblematisch**: Hilt erkennt nicht-öffentliche Module und generiert
+  über `PkgPrivateModuleGenerator` einen öffentlichen `HiltWrapper_…`, der unser Modul via
+  `includes` einbindet. Im Android-Sample verifiziert.
 - Ungültige Symbole werden über `validate()` an die nächste KSP-Runde zurückgegeben (`process`
   liefert die deferred-Liste).
 

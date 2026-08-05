@@ -1,11 +1,15 @@
 [versions]
 kotlin = "2.4.0"
+agp = "9.3.1"
 ksp = "2.3.11"
 kotlinpoet = "2.3.0"
 dagger = "2.60.1"
 kctfork = "0.13.0"
 junit = "5.14.0"
+compileSdk = "36"
+minSdk = "24"
 assertk = "0.28.1"
+androidxActivity = "1.13.0"
 
 [libraries]
 ksp-api = { module = "com.google.devtools.ksp:symbol-processing-api", version.ref = "ksp" }
@@ -14,6 +18,11 @@ kotlinpoet-ksp = { module = "com.squareup:kotlinpoet-ksp", version.ref = "kotlin
 
 hilt-core = { module = "com.google.dagger:hilt-core", version.ref = "dagger" }
 hilt-compiler = { module = "com.google.dagger:hilt-compiler", version.ref = "dagger" }
+hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "dagger" }
+hilt-android-compiler = { module = "com.google.dagger:hilt-android-compiler", version.ref = "dagger" }
+
+# @AndroidEntryPoint requires a ComponentActivity, hence androidx.activity.
+androidx-activity = { module = "androidx.activity:activity", version.ref = "androidxActivity" }
 
 kctfork-core = { module = "dev.zacsweers.kctfork:core", version.ref = "kctfork" }
 kctfork-ksp = { module = "dev.zacsweers.kctfork:ksp", version.ref = "kctfork" }
@@ -24,3 +33,6 @@ assertk = { module = "com.willowtreeapps.assertk:assertk", version.ref = "assert
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+hilt-android = { id = "com.google.dagger.hilt.android", version.ref = "dagger" }

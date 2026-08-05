@@ -58,15 +58,20 @@ Der Delegate-Aufruf zeigt weiterhin auf die Originalfunktion.
 |----------------|------------------------------------------------------------------------|
 | `annotations`  | Öffentliche Annotation `@Provide` (JVM, `api`-Abhängigkeit `hilt-core`) |
 | `processor`    | KSP-`SymbolProcessor` inkl. KotlinPoet-Generierung und Tests (kotlin-compile-testing) |
-| `sample`       | Beispielmodul, das den Processor via `ksp(project(":processor"))` anwendet |
+| `sample`       | JVM-Beispielmodul, das den Processor via `ksp(project(":processor"))` anwendet |
+| `sample-android:feature` | Android-Library mit den `@Provide`-Deklarationen |
+| `sample-android:app`     | Android-App mit der Hilt-Root (`@HiltAndroidApp`) |
 
 ## Build
 
 ```bash
-./gradlew build          # alles bauen + Tests
+./gradlew build                            # alles bauen + Tests
 ./gradlew :processor:test
-./gradlew :sample:kspKotlin   # Generierung im Sample ausführen
+./gradlew :sample:kspKotlin                # Generierung im JVM-Sample ausführen
+./gradlew :sample-android:app:assembleDebug   # Android-Sample inkl. Hilt-Root bauen
 ```
+
+Das Android-Sample braucht ein SDK; `local.properties` mit `sdk.dir=…` ist nicht eingecheckt.
 
 Generierter Code des Samples: `sample/build/generated/ksp/main/kotlin/...`
 
@@ -100,10 +105,24 @@ Noch offen (Teil der API-Diskussion):
 
 - Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
 - Veröffentlichung (`maven-publish`) und CI
-- Android-Sample mit Hilt-Root in einem anderen Gradle-Modul. Klärt den einzigen offenen Punkt der
-  Modul-Sichtbarkeit: `internal` ist innerhalb eines Moduls verifiziert (Daggers Java-Codegen
-  ignoriert Kotlins `internal`), über Modulgrenzen hinweg ist die Aggregation via
-  `hilt_aggregated_deps` bisher nur begründet, nicht belegt.
+- Ein Lauf des Android-Samples auf Gerät/Emulator (bisher nur zur Compile-Zeit verifiziert)
+
+### Mehr-Modul-Fall
+
+`sample-android` belegt den realistischen Aufbau: die `@Provide`-Deklarationen liegen in einer
+Android-Library, die Hilt-Root (`@HiltAndroidApp`) in der App. Die Aggregation trägt über
+Modulgrenzen, und `internal` ist dabei kein Problem — Hilt hat dafür einen eigenen Mechanismus und
+generiert einen öffentlichen Wrapper:
+
+```java
+@InstallIn(SingletonComponent.class)
+@Module(includes = Greeting_SingletonComponentModule.class)
+@Generated("dagger.hilt.processor.internal.aggregateddeps.PkgPrivateModuleGenerator")
+public final class HiltWrapper_Greeting_SingletonComponentModule {}
+```
+
+Im generierten Component landet daraus eine vollständige Verdrahtung, inklusive Singleton-Caching
+über `DoubleCheck` und dem qualifizierten `val` aus der Library.
 
 ### Bewusst nicht unterstützt
 
