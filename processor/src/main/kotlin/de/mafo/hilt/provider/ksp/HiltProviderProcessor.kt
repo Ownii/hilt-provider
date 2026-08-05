@@ -93,9 +93,14 @@ internal class HiltProviderProcessor(
         when (this) {
             is KSFunctionDeclaration -> {
                 if (Modifier.SUSPEND in modifiers) {
-                    reject("@Provide does not support suspend functions.")
+                    // Dagger does not recognise a suspending @Provides at all – it compiles to a
+                    // method taking a Continuation – and reports a MissingBinding at the component
+                    // instead. Failing here points at the actual cause.
+                    reject("@Provide does not support suspend functions: Dagger ignores suspending @Provides methods and then reports the binding as missing.")
                 }
-                if (typeParameters.isNotEmpty()) reject("@Provide does not support generic functions.")
+                if (typeParameters.isNotEmpty()) {
+                    reject("@Provide does not support generic functions: Dagger rejects them with '@Provides methods may not have type parameters'. A parameterised return type such as List<Item> works.")
+                }
                 if (extensionReceiver != null) {
                     reject("@Provide does not support extension functions: the generated module has no receiver to call them on.")
                 }

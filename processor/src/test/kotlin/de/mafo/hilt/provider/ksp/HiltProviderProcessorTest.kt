@@ -342,6 +342,92 @@ class HiltProviderProcessorTest {
         assertThat(generated).contains("public fun labelString(prefix: String): Label = test.label(prefix)")
     }
 
+    /**
+     * Parameterised return types are ordinary Dagger bindings — only type *parameters* on the
+     * binding method itself are rejected, by Dagger and therefore by us.
+     */
+    @Test
+    fun `supports parameterised and nullable return types`() {
+        val (compilation, result) = compile(
+            SourceFile.kotlin(
+                "Providers.kt",
+                """
+                package test
+
+                import de.mafo.hilt.provider.Provide
+
+                class Item
+
+                @Provide
+                fun provideItems(): List<Item> = listOf(Item())
+
+                @Provide
+                fun provideHandlers(): Map<String, Item> = emptyMap()
+
+                @Provide
+                fun provideOptionalItem(): Item? = null
+
+                @Provide
+                fun provideItemFactory(): (String) -> Item = { Item() }
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
+
+        val generated = compilation.generatedFile("test/Providers_SingletonComponentModule.kt")
+        assertThat(generated).contains("public fun provideItems(): List<Item> = test.provideItems()")
+        assertThat(generated)
+            .contains("public fun provideHandlers(): Map<String, Item> = test.provideHandlers()")
+        assertThat(generated)
+            .contains("public fun provideOptionalItem(): Item? = test.provideOptionalItem()")
+        // KSP hands out the underlying type, so a function type is rendered as Function1 rather
+        // than as `(String) -> Item`. Same JVM type, therefore the same Dagger binding.
+        assertThat(generated).contains(
+            "public fun provideItemFactory(): Function1<String, Item> = test.provideItemFactory()",
+        )
+    }
+
+    @Test
+    fun `reports an error for suspend functions`() {
+        val (_, result) = compile(
+            SourceFile.kotlin(
+                "Providers.kt",
+                """
+                package test
+
+                import de.mafo.hilt.provider.Provide
+
+                @Provide
+                suspend fun provideValue(): String = "value"
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
+        assertThat(result.messages).contains("does not support suspend functions")
+    }
+
+    @Test
+    fun `reports an error for generic functions`() {
+        val (_, result) = compile(
+            SourceFile.kotlin(
+                "Providers.kt",
+                """
+                package test
+
+                import de.mafo.hilt.provider.Provide
+
+                @Provide
+                fun <T> provideList(): List<T> = emptyList()
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
+        assertThat(result.messages).contains("may not have type parameters")
+    }
+
     @Test
     fun `reports an error for var properties`() {
         val (_, result) = compile(

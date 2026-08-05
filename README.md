@@ -92,16 +92,29 @@ Bereits umgesetzt:
   Extension-Funktionen und -Properties, `var`, `suspend`, Generics, Root-Package
 - Fehlermeldung, wenn das Package den Modulnamen schon belegt
 - Inferierte Rückgabetypen (`fun provideX() = createX()`)
+- Parametrisierte und nullable Rückgabetypen (`List<Item>`, `Map<String, Item>`, `Item?`,
+  Funktionstypen). Funktionstypen erscheinen als `Function1<String, Item>` — derselbe JVM-Typ und
+  damit dasselbe Binding
 
 Noch offen (Teil der API-Diskussion):
 
 - Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
-- Unterstützung für `suspend`-Funktionen und Generics (aktuell abgelehnt)
 - Veröffentlichung (`maven-publish`) und CI
 - Android-Sample mit Hilt-Root in einem anderen Gradle-Modul. Klärt den einzigen offenen Punkt der
   Modul-Sichtbarkeit: `internal` ist innerhalb eines Moduls verifiziert (Daggers Java-Codegen
   ignoriert Kotlins `internal`), über Modulgrenzen hinweg ist die Aggregation via
   `hilt_aggregated_deps` bisher nur begründet, nicht belegt.
+
+### Bewusst nicht unterstützt
+
+Zwei Grenzen kommen von Dagger, nicht von uns — beide mit `dagger-compiler` nachgeprüft:
+
+- **`suspend`**: Dagger erkennt ein suspendierendes `@Provides` überhaupt nicht (im Bytecode hat es
+  einen `Continuation`-Parameter) und meldet stattdessen `[Dagger/MissingBinding] … cannot be
+  provided` am Component. Wir lehnen früher ab und zeigen dabei auf die Funktion selbst.
+- **Typparametrisierte Funktionen** (`fun <T> provideList(): List<T>`): Dagger lehnt mit
+  *"@Provides methods may not have type parameters"* ab. Ein parametrisierter *Rückgabetyp* ist
+  davon nicht betroffen und funktioniert.
 
 Der Dagger-Graph wird bewusst **nicht** getestet — das wäre ein Test von Dagger. Geprüft wird, dass
 der generierte Code exakt der erwarteten Form entspricht und beim Aufruf an die annotierte Funktion
