@@ -72,6 +72,12 @@ Diese Punkte sind bewusst so und beim Umbau leicht kaputtzumachen:
   Annotation auch auf der Ursprungsdeklaration stehen bleibt und dagger-compiler dort mit
   `IllegalStateException: No enclosing TypeElement` abbricht — isoliert nachgewiesen. Die Erkennung
   prüft erst den `shortName` und resolved nur Kandidaten.
+- **`into` wird gegen `@DefineComponent` geprüft.** Hilts eingebaute Components tragen die
+  Annotation selbst (im Bytecode von `SingletonComponent` nachgesehen), deshalb deckt eine Regel
+  eingebaute und eigene Components ab, ohne pflegebedürftige Liste. KSP liest sie auch aus
+  kompilierten Jars, obwohl sie nur CLASS-Retention hat — mit `:sample:kspKotlin --rerun-tasks`
+  geprüft. Die Regel sitzt in `toProvideTargetOrNull()` statt in `isSupported()`, weil sie die
+  aufgelöste Marker-Annotation braucht, die dort ohnehin vorliegt.
 - Unterstützt werden Top-Level-**Funktionen und Properties** (`val`, auch `by lazy`); die
   Annotation trägt dafür `@Target(FUNCTION, PROPERTY)`.
 - Abgelehnt wird mit `logger.error`, was der generierte Aufruf nicht erreichen könnte:

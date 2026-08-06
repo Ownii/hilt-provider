@@ -101,7 +101,9 @@ Bereits umgesetzt:
 - Top-Level-Funktionen und Top-Level-`val`s (inkl. `by lazy`)
 - Generierung eines `internal object`-Moduls pro Quelldatei und Component (siehe Namensschema)
 - Disambiguierung von Overloads über die Parametertypen
-- `@InstallIn`-Component über den Annotationsparameter `into` (Default `SingletonComponent`)
+- `@InstallIn`-Component über den Annotationsparameter `into` (Default `SingletonComponent`). Der
+  Typ muss `@DefineComponent` tragen — das gilt für Hilts eingebaute Components ebenso wie für
+  eigene, eine hartkodierte Liste braucht es dafür nicht
 - Weitergabe aller übrigen Annotationen (Scopes, Qualifier, Map-Keys) an die `@Provides`-Methode.
   Gegen `dagger-compiler` verifiziert: ein `@Named`-Entry-Point löst das qualifizierte Binding auf,
   für Funktionen wie für `val`s. KotlinPoet schreibt den Argumentnamen dabei aus und escapt ihn

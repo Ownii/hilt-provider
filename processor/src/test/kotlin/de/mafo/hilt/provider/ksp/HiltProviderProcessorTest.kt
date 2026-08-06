@@ -206,7 +206,10 @@ class HiltProviderProcessorTest {
         val compiled = compileSuccessfully(
             providers(
                 """
-                class CustomComponent
+                import dagger.hilt.DefineComponent
+
+                @DefineComponent
+                interface CustomComponent
 
                 @Provide
                 fun provideName(): String = "name"
@@ -600,6 +603,16 @@ class HiltProviderProcessorTest {
                     """,
                 ),
                 "does not support suspend functions",
+            ),
+            Arguments.of(
+                "into is not a Hilt component",
+                providers(
+                    """
+                    @Provide(into = String::class)
+                    fun provideValue(): String = "value"
+                    """,
+                ),
+                "is not a Hilt component",
             ),
             Arguments.of(
                 "multibinding annotation",

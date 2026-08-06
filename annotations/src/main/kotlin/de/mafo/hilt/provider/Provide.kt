@@ -24,7 +24,9 @@ import kotlin.reflect.KClass
  * `@ElementsIntoSet` on a top-level declaration, so the processor rejects that combination instead
  * of letting dagger-compiler fail. Map keys such as `@StringKey` are unaffected.
  *
- * @param into the Hilt component the generated module is installed in.
+ * @param into the Hilt component the generated module is installed in. Has to be a type annotated
+ *   with `@DefineComponent`, which covers Hilt's built-in components as well as custom ones; the
+ *   processor rejects anything else instead of letting Hilt fail later.
  */
 @Target(AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
 @Retention(AnnotationRetention.BINARY)

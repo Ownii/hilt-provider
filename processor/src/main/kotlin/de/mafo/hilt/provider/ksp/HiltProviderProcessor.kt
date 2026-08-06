@@ -66,7 +66,7 @@ internal class HiltProviderProcessor(
                 }
                 declarations
                     .filter { it.isSupported() }
-                    .map { it.toProvideTarget() }
+                    .mapNotNull { it.toProvideTargetOrNull() }
                     .groupBy { it.component }
                     .forEach { (component, targets) ->
                         generateModule(resolver, file, component, targets)
@@ -141,14 +141,31 @@ internal class HiltProviderProcessor(
         val originalName: String get() = declaration.simpleName.asString()
     }
 
-    private fun KSDeclaration.toProvideTarget(): ProvideTarget {
+    /**
+     * Returns `null` after reporting an error. Unlike the rules in [isSupported] this one needs the
+     * resolved marker annotation, so it lives here instead of costing a second pass over the
+     * annotations of every declaration.
+     */
+    private fun KSDeclaration.toProvideTargetOrNull(): ProvideTarget? {
         // A single pass over the annotations yields both halves: our marker carries the component,
-        // everything else is forwarded so that scopes (@Singleton), qualifiers and multibinding
-        // annotations keep working as usual.
+        // everything else is forwarded so that scopes (@Singleton), qualifiers and map keys keep
+        // working as usual.
         val (marker, forwarded) = annotations.partition { it.isProvideAnnotation() }
+        val declaredComponent = marker.firstOrNull().declaredComponent()
+
+        if (declaredComponent != null && !declaredComponent.isHiltComponent()) {
+            logger.error(
+                "'${declaredComponent.declaration.simpleName.asString()}' is not a Hilt component: " +
+                    "'into' expects a type annotated with @DefineComponent, such as " +
+                    "SingletonComponent or ViewModelComponent.",
+                this,
+            )
+            return null
+        }
+
         return ProvideTarget(
             declaration = this,
-            component = marker.firstOrNull().declaredComponent() ?: SINGLETON_COMPONENT,
+            component = declaredComponent?.toClassNameOrNull() ?: SINGLETON_COMPONENT,
             forwardedAnnotations = forwarded.map { it.toAnnotationSpec() },
         )
     }
@@ -270,13 +287,21 @@ internal class HiltProviderProcessor(
         return "${fileName}_${component.simpleName}$MODULE_SUFFIX"
     }
 
-    /** The component from `@Provide(into = ...)`, or `null` when the default applies. */
-    private fun KSAnnotation?.declaredComponent(): ClassName? = this
+    /** The type from `@Provide(into = ...)`, or `null` when the default applies. */
+    private fun KSAnnotation?.declaredComponent(): KSType? = this
         ?.arguments
         ?.firstOrNull { it.name?.asString() == INTO_ARGUMENT }
-        ?.value
-        ?.let { it as? KSType }
-        ?.toClassNameOrNull()
+        ?.value as? KSType
+
+    /**
+     * Hilt's built-in components carry `@DefineComponent` themselves — verified in the bytecode of
+     * `SingletonComponent` — so one rule covers built-in and custom components alike, without a
+     * hardcoded list that would age.
+     */
+    private fun KSType.isHiltComponent(): Boolean = declaration.annotations.any {
+        it.shortName.asString() == DEFINE_COMPONENT_NAME &&
+            it.annotationType.resolve().declaration.qualifiedName?.asString() == DEFINE_COMPONENT
+    }
 
     private fun KSAnnotation.isProvideAnnotation(): Boolean =
         annotationType.resolve().declaration.qualifiedName?.asString() == PROVIDE_ANNOTATION
@@ -321,6 +346,9 @@ internal class HiltProviderProcessor(
         val INTO_ARGUMENT: String = Provide::into.name
 
         const val MODULE_SUFFIX = "Module"
+
+        const val DEFINE_COMPONENT = "dagger.hilt.DefineComponent"
+        const val DEFINE_COMPONENT_NAME = "DefineComponent"
 
         const val MULTIBINDING_PACKAGE = "dagger.multibindings."
         val MULTIBINDING_ANNOTATIONS = setOf("IntoSet", "IntoMap", "ElementsIntoSet")
