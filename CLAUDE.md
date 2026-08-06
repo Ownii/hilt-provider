@@ -123,3 +123,9 @@ Modul statt `allprojects`.
   leitet AGP daraus ab.
 - KSP-Version ist von der Kotlin-Version entkoppelt (eigenes Schema, aktuell `2.3.11`); beide
   getrennt anheben und danach `./gradlew build` prüfen.
+- kotlin-compile-testing bringt eine **eigene, ältere KSP-Implementierung** mit. Nur
+  `symbol-processing-api` zieht Gradle automatisch hoch, `symbol-processing-aa-embeddable` und
+  `-common-deps` blieben zurück — getestet würde dann gegen eine andere KSP-Runtime als die
+  ausgelieferte. `processor/build.gradle.kts` erzwingt deshalb die Katalog-Version für die ganze
+  Gruppe `com.google.devtools.ksp` in allen `test*`-Konfigurationen. Bricht das nach einem
+  KSP-Bump, ist kctfork noch nicht soweit — dann ist die Meldung laut, nicht still.

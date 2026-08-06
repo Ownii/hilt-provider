@@ -126,7 +126,6 @@ Noch offen:
   Remote-Ziel käme hinzu: bei einer Package Registry ein Token, bei Maven Central zusätzlich
   Namespace-Verifikation, GPG-Signierung und `url`/`scm`/`developers` im POM
 - CI ist zurückgestellt, bis das Projekt ein Remote hat
-- Getestet wird gegen KSP `2.3.9` (bringt kctfork mit), ausgeliefert wird gegen `2.3.11`
 
 ### Mehr-Modul-Fall
 

@@ -24,6 +24,20 @@ kotlin {
     }
 }
 
+// kotlin-compile-testing brings its own, older KSP implementation: the API resolves to our version
+// but symbol-processing-aa-embeddable and friends would stay behind, so the tests would exercise a
+// different KSP runtime than the one consumers get.
+val kspVersion = libs.versions.ksp.get()
+
+configurations.matching { it.name.startsWith("test") }.configureEach {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "com.google.devtools.ksp") {
+            useVersion(kspVersion)
+            because("tests must run against the KSP version the processor is built against")
+        }
+    }
+}
+
 // kotlin-compile-testing exposes the compiler plugin API in its DSL – test sources only.
 tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
     compilerOptions.optIn.add("org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi")
