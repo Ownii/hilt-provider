@@ -117,13 +117,15 @@ Bereits umgesetzt:
   Funktionstypen). Funktionstypen erscheinen als `Function1<String, Item>` — derselbe JVM-Typ und
   damit dasselbe Binding
 
-Noch offen (Teil der API-Diskussion):
+Noch offen:
 
-- Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
-- Veröffentlichung: `maven-publish` steht, inkl. Sources-/Javadoc-Jar und POM-Metadaten, und ist
-  gegen `mavenLocal` als Konsument verifiziert. Offen ist nur das Remote-Ziel — für Maven Central
-  fehlen zusätzlich Signierung sowie `url`/`scm`/`developers` im POM
-- CI
+- Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`) — der einzige
+  verbliebene API-Punkt
+- Veröffentlichung bleibt bewusst bei `mavenLocal`, solange die API Platzhalter ist. Für ein
+  Remote-Ziel käme hinzu: bei einer Package Registry ein Token, bei Maven Central zusätzlich
+  Namespace-Verifikation, GPG-Signierung und `url`/`scm`/`developers` im POM
+- CI ist zurückgestellt, bis das Projekt ein Remote hat
+- Getestet wird gegen KSP `2.3.9` (bringt kctfork mit), ausgeliefert wird gegen `2.3.11`
 
 ### Mehr-Modul-Fall
 
