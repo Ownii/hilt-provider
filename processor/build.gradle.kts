@@ -1,6 +1,9 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    `maven-publish`
 }
+
+description = "KSP processor that wraps @Provide declarations in generated Hilt modules."
 
 dependencies {
     implementation(project(":annotations"))

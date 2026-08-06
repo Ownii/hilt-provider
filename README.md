@@ -75,6 +75,22 @@ Das Android-Sample braucht ein SDK; `local.properties` mit `sdk.dir=…` ist nic
 
 Generierter Code des Samples: `sample/build/generated/ksp/main/kotlin/...`
 
+## Verwendung
+
+```kotlin
+dependencies {
+    implementation("de.mafo.hilt:hilt-provider-annotations:0.1.0-SNAPSHOT")
+    ksp("de.mafo.hilt:hilt-provider-processor:0.1.0-SNAPSHOT")
+}
+```
+
+Hilt selbst kommt transitiv über das Annotations-Modul (`api`-Abhängigkeit auf `hilt-core`), muss
+also nicht zusätzlich deklariert werden. Lokal installieren:
+
+```bash
+./gradlew publishToMavenLocal
+```
+
 ## Aktueller Stand
 
 Die Pipeline ist end-to-end verifiziert: Annotation → KSP-Processor → generiertes Hilt-Modul →
@@ -104,7 +120,10 @@ Bereits umgesetzt:
 Noch offen (Teil der API-Diskussion):
 
 - Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
-- Veröffentlichung (`maven-publish`) und CI
+- Veröffentlichung: `maven-publish` steht, inkl. Sources-/Javadoc-Jar und POM-Metadaten, und ist
+  gegen `mavenLocal` als Konsument verifiziert. Offen ist nur das Remote-Ziel — für Maven Central
+  fehlen zusätzlich Signierung sowie `url`/`scm`/`developers` im POM
+- CI
 
 ### Mehr-Modul-Fall
 

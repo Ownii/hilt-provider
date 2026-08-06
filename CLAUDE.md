@@ -19,6 +19,7 @@ offene Punkte stehen unter "Aktueller Stand" in `README.md`.
 ./gradlew :processor:test --tests '*HiltProviderProcessorTest.generates*'   # einzelner Test
 ./gradlew :sample:kspKotlin           # Generierung im JVM-Sample ausführen
 ./gradlew :sample-android:app:assembleDebug   # Android-Sample (braucht local.properties mit sdk.dir)
+./gradlew publishToMavenLocal         # nur :annotations und :processor
 ```
 
 Generierten Code des Samples ansehen (schnellster Weg, eine Processor-Änderung zu prüfen):
@@ -95,6 +96,13 @@ Bindungsmethoden gleichen Namens landen, also genau das, was Dagger verbietet.
 **KSP2-Modus** (`useKsp2()`); generierte Dateien werden über `compilation.kspSourcesDir` gelesen.
 Die dafür nötigen Opt-ins (`ExperimentalCompilerApi`, `KspExperimental`) stehen in
 `processor/build.gradle.kts` — ohne sie schlägt schon die Test-Kompilierung fehl.
+
+## Veröffentlichung
+
+Nur `annotations` und `processor` wenden `maven-publish` an; die Konfiguration (Artefaktname
+`hilt-provider-<modulname>`, Sources-/Javadoc-Jar, POM) liegt im Root unter
+`plugins.withId("maven-publish")`. Die Samples dürfen nie publiziert werden — deshalb Opt-in pro
+Modul statt `allprojects`.
 
 ## Build-Konventionen
 
