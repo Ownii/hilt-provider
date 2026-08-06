@@ -66,8 +66,12 @@ Diese Punkte sind bewusst so und beim Umbau leicht kaputtzumachen:
   (Endlosrekursion). Deshalb wird für das Root-Package ein Fehler gemeldet.
 - **Eine Datei wird als Ganzes generiert oder als Ganzes deferred.** Würde ein Teil der Funktionen
   jetzt und der Rest in einer späteren KSP-Runde geschrieben, kollidierte der Dateiname.
-- **Alle Annotationen außer `@Provide` werden weitergegeben**, damit Scopes, Qualifier und
-  Multibinding-Annotationen unverändert funktionieren.
+- **Alle Annotationen außer `@Provide` werden weitergegeben**, damit Scopes, Qualifier und Map-Keys
+  unverändert funktionieren. **Ausnahme Multibindings**: `@IntoSet`, `@IntoMap` und
+  `@ElementsIntoSet` werden abgelehnt. Nicht weil das Weiterreichen scheitert, sondern weil die
+  Annotation auch auf der Ursprungsdeklaration stehen bleibt und dagger-compiler dort mit
+  `IllegalStateException: No enclosing TypeElement` abbricht — isoliert nachgewiesen. Die Erkennung
+  prüft erst den `shortName` und resolved nur Kandidaten.
 - Unterstützt werden Top-Level-**Funktionen und Properties** (`val`, auch `by lazy`); die
   Annotation trägt dafür `@Target(FUNCTION, PROPERTY)`.
 - Abgelehnt wird mit `logger.error`, was der generierte Aufruf nicht erreichen könnte:

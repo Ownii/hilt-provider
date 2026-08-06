@@ -341,6 +341,38 @@ class HiltProviderProcessorTest {
         assertThat(compiled.module).doesNotContain("@Provide\n")
     }
 
+    /**
+     * Map keys are forwarded like any other annotation – including a class literal, which has to
+     * survive the round trip through KotlinPoet. Only the multibinding *entry* annotations
+     * (`@IntoSet`, `@IntoMap`, `@ElementsIntoSet`) are rejected, see [rejections]: Dagger cannot
+     * cope with those on a top-level declaration.
+     */
+    @Test
+    fun `forwards map key annotations`() {
+        val compiled = compileSuccessfully(
+            providers(
+                """
+                import dagger.multibindings.ClassKey
+                import dagger.multibindings.StringKey
+
+                interface Handler
+                class LoginHandler : Handler
+
+                @Provide
+                @StringKey("login")
+                fun provideNamedHandler(): Handler = LoginHandler()
+
+                @Provide
+                @ClassKey(LoginHandler::class)
+                fun provideKeyedHandler(): Handler = LoginHandler()
+                """,
+            ),
+        )
+
+        assertThat(compiled.module).contains("""@StringKey(`value` = "login")""")
+        assertThat(compiled.module).contains("@ClassKey(`value` = LoginHandler::class)")
+    }
+
     @Test
     fun `reports an error when the module name is already taken`() {
         val result = compile(
@@ -511,6 +543,19 @@ class HiltProviderProcessorTest {
                     """,
                 ),
                 "does not support suspend functions",
+            ),
+            Arguments.of(
+                "multibinding annotation",
+                providers(
+                    """
+                    import dagger.multibindings.IntoSet
+
+                    @Provide
+                    @IntoSet
+                    fun provideHandler(): String = "handler"
+                    """,
+                ),
+                "Dagger rejects multibinding annotations on top-level declarations",
             ),
             Arguments.of(
                 "generic function",

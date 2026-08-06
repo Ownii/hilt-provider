@@ -94,6 +94,13 @@ internal class HiltProviderProcessor(
         if (extensionReceiver != null) {
             reject("@Provide does not support extension declarations: the generated module has no receiver to call them on.")
         }
+        multibindingAnnotation?.let { annotation ->
+            // Forwarding the annotation is not the problem – it stays on the annotated declaration
+            // as well, and dagger-compiler dies on that with an internal
+            // "No enclosing TypeElement" error. Verified for @IntoSet, @IntoMap and
+            // @ElementsIntoSet; map keys such as @StringKey and scopes are unaffected.
+            reject("@Provide cannot be combined with ${annotation.shortName.asString()}: Dagger rejects multibinding annotations on top-level declarations. Write the @Module by hand for this binding.")
+        }
 
         when (this) {
             is KSFunctionDeclaration -> {
@@ -274,6 +281,17 @@ internal class HiltProviderProcessor(
     private fun KSAnnotation.isProvideAnnotation(): Boolean =
         annotationType.resolve().declaration.qualifiedName?.asString() == PROVIDE_ANNOTATION
 
+    /**
+     * The short name is checked first, which is free: only a candidate is resolved, so unrelated
+     * annotations cost nothing here.
+     */
+    private val KSDeclaration.multibindingAnnotation: KSAnnotation?
+        get() = annotations.firstOrNull {
+            it.shortName.asString() in MULTIBINDING_ANNOTATIONS &&
+                it.annotationType.resolve().declaration.qualifiedName?.asString()
+                    ?.startsWith(MULTIBINDING_PACKAGE) == true
+        }
+
     private val KSDeclaration.extensionReceiver: KSTypeReference?
         get() = when (this) {
             is KSFunctionDeclaration -> extensionReceiver
@@ -303,6 +321,9 @@ internal class HiltProviderProcessor(
         val INTO_ARGUMENT: String = Provide::into.name
 
         const val MODULE_SUFFIX = "Module"
+
+        const val MULTIBINDING_PACKAGE = "dagger.multibindings."
+        val MULTIBINDING_ANNOTATIONS = setOf("IntoSet", "IntoMap", "ElementsIntoSet")
 
         val MODULE = ClassName("dagger", "Module")
         val PROVIDES = ClassName("dagger", "Provides")

@@ -102,7 +102,7 @@ Bereits umgesetzt:
 - Generierung eines `internal object`-Moduls pro Quelldatei und Component (siehe Namensschema)
 - Disambiguierung von Overloads über die Parametertypen
 - `@InstallIn`-Component über den Annotationsparameter `into` (Default `SingletonComponent`)
-- Weitergabe aller übrigen Annotationen (Scopes, Qualifier, Multibindings) an die `@Provides`-Methode.
+- Weitergabe aller übrigen Annotationen (Scopes, Qualifier, Map-Keys) an die `@Provides`-Methode.
   Gegen `dagger-compiler` verifiziert: ein `@Named`-Entry-Point löst das qualifizierte Binding auf,
   für Funktionen wie für `val`s. KotlinPoet schreibt den Argumentnamen dabei aus und escapt ihn
   (``@Named(`value` = "base-url")``) — gültiges Kotlin und bytecode-identisch, bleibt so
@@ -119,8 +119,9 @@ Bereits umgesetzt:
 
 Noch offen:
 
-- Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`) — der einzige
-  verbliebene API-Punkt
+- Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
+- Multibinding-Unterstützung über eine eigene API, falls gewünscht: Dagger-Annotationen können es
+  nicht leisten (siehe oben), eigene Marker, die der Processor übersetzt, könnten es
 - Veröffentlichung bleibt bewusst bei `mavenLocal`, solange die API Platzhalter ist. Für ein
   Remote-Ziel käme hinzu: bei einer Package Registry ein Token, bei Maven Central zusätzlich
   Namespace-Verifikation, GPG-Signierung und `url`/`scm`/`developers` im POM
@@ -156,6 +157,12 @@ Zwei Grenzen kommen von Dagger, nicht von uns — beide mit `dagger-compiler` na
 - **Typparametrisierte Funktionen** (`fun <T> provideList(): List<T>`): Dagger lehnt mit
   *"@Provides methods may not have type parameters"* ab. Ein parametrisierter *Rückgabetyp* ist
   davon nicht betroffen und funktioniert.
+- **Multibindings** (`@IntoSet`, `@IntoMap`, `@ElementsIntoSet`): dagger-compiler bricht mit
+  `java.lang.IllegalStateException: No enclosing TypeElement` ab, sobald eine dieser Annotationen
+  auf einer Top-Level-Funktion steht — isoliert nachgewiesen, ohne `@Provide`, ohne Modul und ohne
+  Component. Das Weiterreichen funktioniert also, die Kombination ist trotzdem unbrauchbar, weil die
+  Annotation auf der Ursprungsdeklaration stehen bleibt. Der Processor lehnt sie deshalb mit
+  Erklärung ab. Map-Keys (`@StringKey`, `@ClassKey`) und Scopes sind nicht betroffen.
 
 Der Dagger-Graph wird bewusst **nicht** getestet — das wäre ein Test von Dagger. Geprüft wird, dass
 der generierte Code exakt der erwarteten Form entspricht und beim Aufruf an die annotierte Funktion

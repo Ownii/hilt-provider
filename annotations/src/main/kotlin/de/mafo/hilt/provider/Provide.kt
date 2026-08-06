@@ -19,8 +19,10 @@ import kotlin.reflect.KClass
  * val defaultConfig = Config(baseUrl = "https://example.com")
  * ```
  *
- * Scopes, qualifiers and multibinding annotations are forwarded to the generated `@Provides`
- * function, so they keep working as usual.
+ * Scopes and qualifiers are forwarded to the generated `@Provides` function, so they keep working
+ * as usual. Multibindings are the exception: Dagger cannot cope with `@IntoSet`, `@IntoMap` or
+ * `@ElementsIntoSet` on a top-level declaration, so the processor rejects that combination instead
+ * of letting dagger-compiler fail. Map keys such as `@StringKey` are unaffected.
  *
  * @param into the Hilt component the generated module is installed in.
  */
