@@ -86,6 +86,11 @@ Verhalten — ein Test lädt das generierte Modul über `result.classLoader` und
 `@Provides`-Funktion per Reflection auf. Nur dieser Aufruf beweist, dass die Delegation nicht auf
 sich selbst zeigt.
 
+Ablehnungsregeln liegen als `@ParameterizedTest` mit `@MethodSource("rejections")` vor — eine neue
+Regel ist dort ein Listeneintrag, kein neuer Testblock. `ModuleObject.call(name)` sucht die Methode
+allein über den Namen und prüft damit implizit mit, dass im generierten Modul keine zwei
+Bindungsmethoden gleichen Namens landen, also genau das, was Dagger verbietet.
+
 `processor/src/test/.../HiltProviderProcessorTest.kt` nutzt kotlin-compile-testing (kctfork) im
 **KSP2-Modus** (`useKsp2()`); generierte Dateien werden über `compilation.kspSourcesDir` gelesen.
 Die dafür nötigen Opt-ins (`ExperimentalCompilerApi`, `KspExperimental`) stehen in
@@ -95,7 +100,11 @@ Die dafür nötigen Opt-ins (`ExperimentalCompilerApi`, `KspExperimental`) stehe
 
 - Versionen ausschließlich über `gradle/libs.versions.toml` (Version Catalog, `libs.*`-Aliase).
 - JVM-Target ist bewusst **17**, obwohl lokal JDK 25 baut — die Artefakte müssen für
-  Android-/Hilt-Konsument*innen nutzbar bleiben. Kein `jvmToolchain`-Block; stattdessen
-  `compilerOptions.jvmTarget` plus `java.sourceCompatibility/targetCompatibility` pro Modul.
+  Android-/Hilt-Konsument*innen nutzbar bleiben. Durchgesetzt wird das **einmal im Root-Build**
+  (`subprojects { plugins.withId("org.jetbrains.kotlin.jvm") { … } }`), nicht pro Modul: sonst
+  kompiliert ein neues Modul stillschweigend gegen das JDK-Default und bricht erst bei den
+  Konsument*innen. Kein `jvmToolchain`-Block, entsprechend auch kein Toolchain-Resolver in
+  `settings.gradle.kts`. Die Android-Module setzen nur `compileOptions`; den Kotlin-jvmTarget
+  leitet AGP daraus ab.
 - KSP-Version ist von der Kotlin-Version entkoppelt (eigenes Schema, aktuell `2.3.11`); beide
   getrennt anheben und danach `./gradlew build` prüfen.

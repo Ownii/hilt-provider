@@ -1,6 +1,7 @@
 package de.mafo.hilt.provider.ksp
 
-import com.google.devtools.ksp.getVisibility
+import com.google.devtools.ksp.getClassDeclarationByName
+import com.google.devtools.ksp.isPrivate
 import com.google.devtools.ksp.processing.CodeGenerator
 import com.google.devtools.ksp.processing.Dependencies
 import com.google.devtools.ksp.processing.KSPLogger
@@ -13,21 +14,21 @@ import com.google.devtools.ksp.symbol.KSFile
 import com.google.devtools.ksp.symbol.KSFunctionDeclaration
 import com.google.devtools.ksp.symbol.KSPropertyDeclaration
 import com.google.devtools.ksp.symbol.KSType
+import com.google.devtools.ksp.symbol.KSTypeReference
 import com.google.devtools.ksp.symbol.Modifier
-import com.google.devtools.ksp.symbol.Visibility
 import com.google.devtools.ksp.validate
 import com.squareup.kotlinpoet.AnnotationSpec
 import com.squareup.kotlinpoet.ClassName
-import com.squareup.kotlinpoet.CodeBlock
 import com.squareup.kotlinpoet.FileSpec
 import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
 import com.squareup.kotlinpoet.ParameterSpec
-import com.squareup.kotlinpoet.TypeName
 import com.squareup.kotlinpoet.TypeSpec
 import com.squareup.kotlinpoet.ksp.toAnnotationSpec
+import com.squareup.kotlinpoet.ksp.toClassNameOrNull
 import com.squareup.kotlinpoet.ksp.toTypeName
 import com.squareup.kotlinpoet.ksp.writeTo
+import de.mafo.hilt.provider.Provide
 
 /**
  * Generates Hilt `@Module`s for top-level functions and properties annotated with `@Provide`.
@@ -43,17 +44,18 @@ internal class HiltProviderProcessor(
 ) : SymbolProcessor {
 
     override fun process(resolver: Resolver): List<KSAnnotated> {
-        val symbols = resolver.getSymbolsWithAnnotation(PROVIDE_ANNOTATION).toList()
+        val (providable, unsupported) = resolver
+            .getSymbolsWithAnnotation(PROVIDE_ANNOTATION)
+            .partition { it is KSFunctionDeclaration || it is KSPropertyDeclaration }
 
-        symbols
-            .filterNot { it is KSFunctionDeclaration || it is KSPropertyDeclaration }
-            .forEach { logger.error("@Provide is only applicable to functions and properties.", it) }
+        unsupported.forEach {
+            logger.error("@Provide is only applicable to functions and properties.", it)
+        }
 
         val deferred = mutableListOf<KSAnnotated>()
 
-        symbols
+        providable
             .filterIsInstance<KSDeclaration>()
-            .filter { it is KSFunctionDeclaration || it is KSPropertyDeclaration }
             .groupBy { it.containingFile }
             .forEach { (file, declarations) ->
                 // A file is generated as a whole, so it is also deferred as a whole: emitting a
@@ -86,8 +88,11 @@ internal class HiltProviderProcessor(
         if (packageName.asString().isEmpty()) {
             reject("@Provide declarations must not live in the root package.")
         }
-        if (getVisibility() == Visibility.PRIVATE) {
+        if (isPrivate()) {
             reject("@Provide declarations must not be private: the generated module lives in a separate file and could not call them.")
+        }
+        if (extensionReceiver != null) {
+            reject("@Provide does not support extension declarations: the generated module has no receiver to call them on.")
         }
 
         when (this) {
@@ -101,11 +106,8 @@ internal class HiltProviderProcessor(
                 if (typeParameters.isNotEmpty()) {
                     reject("@Provide does not support generic functions: Dagger rejects them with '@Provides methods may not have type parameters'. A parameterised return type such as List<Item> works.")
                 }
-                if (extensionReceiver != null) {
-                    reject("@Provide does not support extension functions: the generated module has no receiver to call them on.")
-                }
-                if (returnType?.resolve() == null) {
-                    reject("Unable to resolve the return type of '${simpleName.asString()}'.")
+                if (returnType == null) {
+                    reject("Unable to determine the return type of '${simpleName.asString()}'.")
                 }
             }
 
@@ -113,83 +115,35 @@ internal class HiltProviderProcessor(
                 if (isMutable) {
                     reject("@Provide does not support 'var' properties. Use a 'val' or a function.")
                 }
-                if (extensionReceiver != null) {
-                    reject("@Provide does not support extension properties: the generated module has no receiver to read them on.")
-                }
             }
         }
         return supported
     }
 
-    /** A `@Provide` function or property, reduced to what the generated `@Provides` needs. */
+    /**
+     * A `@Provide` declaration plus the two things that would otherwise be looked up twice: the
+     * target component and the annotations to forward. Everything else is derived from
+     * [declaration] where it is needed, which keeps the function/property distinction out of this
+     * layer.
+     */
     private class ProvideTarget(
         val declaration: KSDeclaration,
-        val originalName: String,
         val component: ClassName,
-        val returnType: TypeName,
-        val parameters: List<ParameterSpec>,
         val forwardedAnnotations: List<AnnotationSpec>,
-        /** The fully qualified call or property read the generated function delegates to. */
-        val delegate: CodeBlock,
-        /** Appended to the generated name when several declarations share [originalName]. */
-        val nameSuffix: String,
-    )
+    ) {
+        val originalName: String get() = declaration.simpleName.asString()
+    }
 
     private fun KSDeclaration.toProvideTarget(): ProvideTarget {
-        val packageName = packageName.asString()
-        val name = simpleName.asString()
-        val forwarded = annotations
-            // Everything except our own marker is forwarded, so scopes (@Singleton), qualifiers and
-            // multibinding annotations keep working as usual.
-            .filterNot { it.isProvideAnnotation() }
-            .map { it.toAnnotationSpec() }
-            .toList()
-
-        return when (this) {
-            is KSFunctionDeclaration -> {
-                val parameters = parameters.map { parameter ->
-                    ParameterSpec
-                        .builder(
-                            name = parameter.name?.asString() ?: "arg",
-                            type = parameter.type.resolve().toTypeName(),
-                        )
-                        .addAnnotations(parameter.annotations.map { it.toAnnotationSpec() }.toList())
-                        .build()
-                }
-                ProvideTarget(
-                    declaration = this,
-                    originalName = name,
-                    component = installInComponent(),
-                    returnType = returnType!!.resolve().toTypeName(),
-                    parameters = parameters,
-                    forwardedAnnotations = forwarded,
-                    // Fully qualified: the generated function may share its name with the annotated
-                    // one, in which case an unqualified call would recurse.
-                    delegate = CodeBlock.of(
-                        "%L.%L(%L)",
-                        packageName,
-                        name,
-                        parameters.joinToString { it.name },
-                    ),
-                    nameSuffix = this.parameters.joinToString("") {
-                        it.type.resolve().declaration.simpleName.asString()
-                    },
-                )
-            }
-
-            is KSPropertyDeclaration -> ProvideTarget(
-                declaration = this,
-                originalName = name,
-                component = installInComponent(),
-                returnType = type.resolve().toTypeName(),
-                parameters = emptyList(),
-                forwardedAnnotations = forwarded,
-                delegate = CodeBlock.of("%L.%L", packageName, name),
-                nameSuffix = "",
-            )
-
-            else -> error("Unsupported declaration: $name")
-        }
+        // A single pass over the annotations yields both halves: our marker carries the component,
+        // everything else is forwarded so that scopes (@Singleton), qualifiers and multibinding
+        // annotations keep working as usual.
+        val (marker, forwarded) = annotations.partition { it.isProvideAnnotation() }
+        return ProvideTarget(
+            declaration = this,
+            component = marker.firstOrNull().declaredComponent() ?: SINGLETON_COMPONENT,
+            forwardedAnnotations = forwarded.map { it.toAnnotationSpec() },
+        )
     }
 
     private fun generateModule(
@@ -201,10 +155,7 @@ internal class HiltProviderProcessor(
         val packageName = file.packageName.asString()
         val moduleName = moduleName(file, component)
 
-        val existing = resolver.getClassDeclarationByName(
-            resolver.getKSNameFromString("$packageName.$moduleName"),
-        )
-        if (existing != null) {
+        if (resolver.getClassDeclarationByName("$packageName.$moduleName") != null) {
             logger.error(
                 "Cannot generate '$moduleName': the package already declares a type with that " +
                     "name. Rename it or move the @Provide declarations to a differently named file.",
@@ -217,11 +168,9 @@ internal class HiltProviderProcessor(
             .addModifiers(KModifier.INTERNAL)
             .addAnnotation(MODULE)
             .addAnnotation(
-                AnnotationSpec.builder(INSTALL_IN)
-                    .addMember("%L", CodeBlock.of("%T::class", component))
-                    .build(),
+                AnnotationSpec.builder(INSTALL_IN).addMember("%T::class", component).build(),
             )
-            .apply { providesFunctions(targets).forEach(::addFunction) }
+            .addFunctions(providesFunctions(targets))
             .build()
 
         FileSpec.builder(packageName, moduleName)
@@ -231,9 +180,11 @@ internal class HiltProviderProcessor(
     }
 
     /**
-     * Dagger rejects several binding methods with the same name in one module, so overloads are
-     * disambiguated by their parameter types. That keeps the names stable when another overload is
-     * added later, which an index-based suffix would not.
+     * Dagger rejects several binding methods with the same name in one module, so declarations that
+     * share a name are disambiguated by their parameter types. That keeps the names stable when
+     * another overload is added later, which an index-based suffix would not. Parameter types alone
+     * are not unique either — two overloads can take equally named types from different packages —
+     * so [claimIn] appends a counter as a last resort.
      */
     private fun providesFunctions(targets: List<ProvideTarget>): List<FunSpec> {
         val ambiguous = targets
@@ -243,58 +194,100 @@ internal class HiltProviderProcessor(
         val taken = mutableSetOf<String>()
 
         return targets.map { target ->
-            val candidate = if (target.originalName in ambiguous) {
-                target.originalName + target.nameSuffix
+            val originalName = target.originalName
+            // Only computed where it is needed: the suffix costs a resolve() per parameter.
+            val candidate = if (originalName in ambiguous) {
+                originalName + target.parameterTypeSuffix()
             } else {
-                target.originalName
+                originalName
             }
-            val providesName = candidate.uniqueIn(taken)
+            val providesName = candidate.claimIn(taken)
 
             FunSpec.builder(providesName)
                 .apply {
-                    if (providesName != target.originalName) {
+                    if (providesName != originalName) {
                         addKdoc(
                             "Renamed from `%L`: Dagger does not allow overloaded binding methods.",
-                            target.originalName,
+                            originalName,
                         )
                     }
                 }
                 .addAnnotation(PROVIDES)
                 .addAnnotations(target.forwardedAnnotations)
-                .addParameters(target.parameters)
-                .returns(target.returnType)
-                .addStatement("return %L", target.delegate)
+                .delegateTo(target.declaration)
                 .build()
         }
     }
 
+    /**
+     * Adds signature and body. The call is fully qualified because the generated function usually
+     * shares its name with the annotated one, in which case an unqualified call would recurse.
+     */
+    private fun FunSpec.Builder.delegateTo(declaration: KSDeclaration): FunSpec.Builder {
+        val packageName = declaration.packageName.asString()
+        val name = declaration.simpleName.asString()
+
+        return when (declaration) {
+            is KSFunctionDeclaration -> {
+                val parameters = declaration.parameters.map { parameter ->
+                    ParameterSpec
+                        .builder(parameter.name?.asString() ?: "arg", parameter.type.toTypeName())
+                        .addAnnotations(parameter.annotations.map { it.toAnnotationSpec() }.toList())
+                        .build()
+                }
+                addParameters(parameters)
+                    .returns(declaration.returnType!!.toTypeName())
+                    .addStatement(
+                        "return %L.%L(%L)",
+                        packageName,
+                        name,
+                        parameters.joinToString { it.name },
+                    )
+            }
+
+            is KSPropertyDeclaration ->
+                returns(declaration.type.toTypeName())
+                    .addStatement("return %L.%L", packageName, name)
+
+            else -> error("Unsupported declaration: $name")
+        }
+    }
+
+    private fun ProvideTarget.parameterTypeSuffix(): String = (declaration as? KSFunctionDeclaration)
+        ?.parameters
+        ?.joinToString(separator = "") { it.type.resolve().declaration.simpleName.asString() }
+        .orEmpty()
+
     private fun moduleName(file: KSFile, component: ClassName): String {
-        val fileName = file.fileName.removeSuffix(".kt").toIdentifier()
+        val fileName = file.fileName.substringBeforeLast('.').toIdentifier()
         return "${fileName}_${component.simpleName}$MODULE_SUFFIX"
     }
 
-    /** The component from `@Provide(into = ...)`, falling back to [SINGLETON_COMPONENT]. */
-    private fun KSDeclaration.installInComponent(): ClassName = annotations
-        .firstOrNull { it.isProvideAnnotation() }
+    /** The component from `@Provide(into = ...)`, or `null` when the default applies. */
+    private fun KSAnnotation?.declaredComponent(): ClassName? = this
         ?.arguments
         ?.firstOrNull { it.name?.asString() == INTO_ARGUMENT }
         ?.value
         ?.let { it as? KSType }
-        ?.declaration
-        ?.qualifiedName
-        ?.asString()
-        ?.let(ClassName::bestGuess)
-        ?: SINGLETON_COMPONENT
+        ?.toClassNameOrNull()
 
     private fun KSAnnotation.isProvideAnnotation(): Boolean =
         annotationType.resolve().declaration.qualifiedName?.asString() == PROVIDE_ANNOTATION
+
+    private val KSDeclaration.extensionReceiver: KSTypeReference?
+        get() = when (this) {
+            is KSFunctionDeclaration -> extensionReceiver
+            is KSPropertyDeclaration -> extensionReceiver
+            else -> null
+        }
 
     private fun String.toIdentifier(): String =
         map { if (it.isLetterOrDigit() || it == '_') it else '_' }
             .joinToString(separator = "")
             .let { if (it.firstOrNull()?.isDigit() == true) "_$it" else it }
 
-    private fun String.uniqueIn(taken: MutableSet<String>): String {
+    /** Returns this name, or the first free `name2`, `name3`, …, and records it as taken. */
+    private fun String.claimIn(taken: MutableSet<String>): String {
         var candidate = this
         var index = 2
         while (!taken.add(candidate)) {
@@ -305,8 +298,10 @@ internal class HiltProviderProcessor(
     }
 
     private companion object {
-        const val PROVIDE_ANNOTATION = "de.mafo.hilt.provider.Provide"
-        const val INTO_ARGUMENT = "into"
+        /** Read off the annotation, so renaming it is a compile error rather than a silent no-op. */
+        val PROVIDE_ANNOTATION: String = requireNotNull(Provide::class.java.canonicalName)
+        val INTO_ARGUMENT: String = Provide::into.name
+
         const val MODULE_SUFFIX = "Module"
 
         val MODULE = ClassName("dagger", "Module")

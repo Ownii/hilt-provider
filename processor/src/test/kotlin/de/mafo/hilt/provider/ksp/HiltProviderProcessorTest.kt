@@ -12,18 +12,17 @@ import com.tschuchort.compiletesting.symbolProcessorProviders
 import com.tschuchort.compiletesting.useKsp2
 import java.io.File
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.MethodSource
 
 class HiltProviderProcessorTest {
 
     @Test
     fun `generates a hilt module named after the source file`() {
-        val (compilation, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
+        val compiled = compileSuccessfully(
+            providers(
                 """
-                package test
-
-                import de.mafo.hilt.provider.Provide
                 import javax.inject.Singleton
 
                 class Config
@@ -32,12 +31,11 @@ class HiltProviderProcessorTest {
                 @Provide
                 @Singleton
                 fun provideApiClient(config: Config): ApiClient = ApiClient(config)
-                """.trimIndent(),
+                """,
             ),
         )
 
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
-        assertThat(compilation.generatedFile("test/Providers_SingletonComponentModule.kt")).isEqualTo(
+        assertThat(compiled.module).isEqualTo(
             """
             package test
 
@@ -60,29 +58,21 @@ class HiltProviderProcessorTest {
     }
 
     @Test
-    fun `collects all functions of a file into one module`() {
-        val (compilation, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
+    fun `collects all declarations of a file into one module`() {
+        val compiled = compileSuccessfully(
+            providers(
                 """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-
                 @Provide
                 fun provideName(): String = "name"
 
                 @Provide
                 fun provideCount(): Int = 1
-                """.trimIndent(),
+                """,
             ),
         )
 
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
-
-        val generated = compilation.generatedFile("test/Providers_SingletonComponentModule.kt")
-        assertThat(generated).contains("public fun provideName(): String = test.provideName()")
-        assertThat(generated).contains("public fun provideCount(): Int = test.provideCount()")
+        assertThat(compiled.module).contains("public fun provideName(): String = test.provideName()")
+        assertThat(compiled.module).contains("public fun provideCount(): Int = test.provideCount()")
     }
 
     /**
@@ -91,7 +81,7 @@ class HiltProviderProcessorTest {
      */
     @Test
     fun `generates independent modules for equally named functions in different packages`() {
-        val (compilation, result) = compile(
+        val compiled = compileSuccessfully(
             SourceFile.kotlin(
                 "NavEntry.kt",
                 """
@@ -116,10 +106,9 @@ class HiltProviderProcessorTest {
             ),
         )
 
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
-        assertThat(compilation.generatedFile("test/home/NavEntry_SingletonComponentModule.kt"))
+        assertThat(compiled.generatedFile("test/home/NavEntry_SingletonComponentModule.kt"))
             .contains("test.home.provideNavEntry()")
-        assertThat(compilation.generatedFile("test/detail/NavEntry2_SingletonComponentModule.kt"))
+        assertThat(compiled.generatedFile("test/detail/NavEntry2_SingletonComponentModule.kt"))
             .contains("test.detail.provideNavEntry()")
     }
 
@@ -130,37 +119,61 @@ class HiltProviderProcessorTest {
      */
     @Test
     fun `disambiguates overloads by parameter type`() {
-        val (compilation, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
+        val compiled = compileSuccessfully(
+            providers(
                 """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-
                 @Provide
                 fun provideGreeting(): String = "hello"
 
                 @Provide
                 fun provideGreeting(count: Int): String = "hello".repeat(count)
-                """.trimIndent(),
+                """,
             ),
         )
 
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
+        assertThat(compiled.module).contains("public fun provideGreetingInt(count: Int): String")
 
-        val generated = compilation.generatedFile("test/Providers_SingletonComponentModule.kt")
-        assertThat(generated).contains("public fun provideGreetingInt(count: Int): String")
+        val module = compiled.moduleObject()
+        assertThat(module.call("provideGreeting")).isEqualTo("hello")
+        assertThat(module.call("provideGreetingInt", 2)).isEqualTo("hellohello")
+    }
 
-        val moduleClass = result.classLoader.loadClass("test.Providers_SingletonComponentModule")
-        val module = moduleClass.getField("INSTANCE").get(null)
+    /** Parameter type names are not unique across packages, so a counter is the last resort. */
+    @Test
+    fun `falls back to a counter when parameter type names are not distinctive`() {
+        val compiled = compileSuccessfully(
+            SourceFile.kotlin(
+                "Ids.kt",
+                """
+                package test.foo
+                class Id
+                """.trimIndent(),
+            ),
+            SourceFile.kotlin(
+                "Ids2.kt",
+                """
+                package test.bar
+                class Id
+                """.trimIndent(),
+            ),
+            providers(
+                """
+                import test.bar.Id as BarId
+                import test.foo.Id as FooId
 
-        assertThat(moduleClass.getDeclaredMethod("provideGreeting").invoke(module) as String)
-            .isEqualTo("hello")
-        assertThat(
-            moduleClass.getDeclaredMethod("provideGreetingInt", Int::class.java)
-                .invoke(module, 2) as String,
-        ).isEqualTo("hellohello")
+                class Value
+
+                @Provide
+                fun provideValue(id: FooId): Value = Value()
+
+                @Provide
+                fun provideValue(id: BarId): Value = Value()
+                """,
+            ),
+        )
+
+        assertThat(compiled.module).contains("public fun provideValueId(")
+        assertThat(compiled.module).contains("public fun provideValueId2(")
     }
 
     /**
@@ -170,39 +183,23 @@ class HiltProviderProcessorTest {
      */
     @Test
     fun `generated module delegates to the annotated function`() {
-        val (_, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
+        val compiled = compileSuccessfully(
+            providers(
                 """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-
                 @Provide
                 fun provideGreeting(): String = "hello"
-                """.trimIndent(),
+                """,
             ),
         )
 
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
-
-        val moduleClass = result.classLoader.loadClass("test.Providers_SingletonComponentModule")
-        val module = moduleClass.getField("INSTANCE").get(null)
-        val provided = moduleClass.getDeclaredMethod("provideGreeting").invoke(module)
-
-        assertThat(provided as String).isEqualTo("hello")
+        assertThat(compiled.moduleObject().call("provideGreeting")).isEqualTo("hello")
     }
 
     @Test
     fun `generates one module per component of a file`() {
-        val (compilation, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
+        val compiled = compileSuccessfully(
+            providers(
                 """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-
                 class CustomComponent
 
                 @Provide
@@ -210,136 +207,31 @@ class HiltProviderProcessorTest {
 
                 @Provide(into = CustomComponent::class)
                 fun provideCount(): Int = 1
-                """.trimIndent(),
+                """,
             ),
         )
 
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
-        assertThat(compilation.generatedFile("test/Providers_SingletonComponentModule.kt"))
-            .contains("@InstallIn(SingletonComponent::class)")
-        assertThat(compilation.generatedFile("test/Providers_CustomComponentModule.kt"))
+        assertThat(compiled.module).contains("@InstallIn(SingletonComponent::class)")
+        assertThat(compiled.generatedFile("test/Providers_CustomComponentModule.kt"))
             .contains("@InstallIn(CustomComponent::class)")
     }
 
     @Test
     fun `resolves inferred return types`() {
-        val (compilation, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
+        val compiled = compileSuccessfully(
+            providers(
                 """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-
                 class MyDependency
                 fun createMyDependency() = MyDependency()
 
                 @Provide
                 fun provideDependency() = createMyDependency()
-                """.trimIndent(),
+                """,
             ),
         )
 
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
-        assertThat(compilation.generatedFile("test/Providers_SingletonComponentModule.kt"))
+        assertThat(compiled.module)
             .contains("public fun provideDependency(): MyDependency = test.provideDependency()")
-    }
-
-    @Test
-    fun `forwards qualifier annotations to the provides function`() {
-        val (compilation, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
-                """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-                import javax.inject.Named
-                import javax.inject.Singleton
-
-                @Provide
-                @Singleton
-                @Named("base-url")
-                fun provideBaseUrl(): String = "https://example.com"
-                """.trimIndent(),
-            ),
-        )
-
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
-
-        val generated = compilation.generatedFile("test/Providers_SingletonComponentModule.kt")
-        assertThat(generated).contains("@Singleton")
-        // KotlinPoet spells out the argument name and escapes `value`, since it is a soft keyword.
-        assertThat(generated).contains("""@Named(`value` = "base-url")""")
-        assertThat(generated).contains("@Provides")
-        // Our own marker must not leak into the generated code.
-        assertThat(generated).doesNotContain("@Provide\n")
-    }
-
-    @Test
-    fun `provides top level properties`() {
-        val (compilation, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
-                """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-                import javax.inject.Named
-                import javax.inject.Singleton
-
-                class Config(val baseUrl: String)
-
-                @Provide
-                @Singleton
-                val defaultConfig = Config("https://example.com")
-
-                @Provide
-                @Named("greeting")
-                val lazyGreeting: String by lazy { "hello" }
-                """.trimIndent(),
-            ),
-        )
-
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
-
-        val generated = compilation.generatedFile("test/Providers_SingletonComponentModule.kt")
-        assertThat(generated).contains("public fun defaultConfig(): Config = test.defaultConfig")
-        assertThat(generated).contains("""@Named(`value` = "greeting")""")
-
-        // A property read must reach the property, not the generated function of the same name.
-        val moduleClass = result.classLoader.loadClass("test.Providers_SingletonComponentModule")
-        val module = moduleClass.getField("INSTANCE").get(null)
-        assertThat(moduleClass.getDeclaredMethod("lazyGreeting").invoke(module) as String)
-            .isEqualTo("hello")
-    }
-
-    @Test
-    fun `disambiguates a property clashing with a function of the same name`() {
-        val (compilation, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
-                """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-
-                class Label(val text: String)
-
-                @Provide
-                val label = Label("property")
-
-                @Provide
-                fun label(prefix: String): Label = Label(prefix)
-                """.trimIndent(),
-            ),
-        )
-
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
-
-        val generated = compilation.generatedFile("test/Providers_SingletonComponentModule.kt")
-        assertThat(generated).contains("public fun label(): Label = test.label")
-        assertThat(generated).contains("public fun labelString(prefix: String): Label = test.label(prefix)")
     }
 
     /**
@@ -348,14 +240,9 @@ class HiltProviderProcessorTest {
      */
     @Test
     fun `supports parameterised and nullable return types`() {
-        val (compilation, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
+        val compiled = compileSuccessfully(
+            providers(
                 """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-
                 class Item
 
                 @Provide
@@ -369,187 +256,272 @@ class HiltProviderProcessorTest {
 
                 @Provide
                 fun provideItemFactory(): (String) -> Item = { Item() }
-                """.trimIndent(),
+                """,
             ),
         )
 
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK)
-
-        val generated = compilation.generatedFile("test/Providers_SingletonComponentModule.kt")
-        assertThat(generated).contains("public fun provideItems(): List<Item> = test.provideItems()")
-        assertThat(generated)
+        assertThat(compiled.module).contains("public fun provideItems(): List<Item> = test.provideItems()")
+        assertThat(compiled.module)
             .contains("public fun provideHandlers(): Map<String, Item> = test.provideHandlers()")
-        assertThat(generated)
+        assertThat(compiled.module)
             .contains("public fun provideOptionalItem(): Item? = test.provideOptionalItem()")
-        // KSP hands out the underlying type, so a function type is rendered as Function1 rather
-        // than as `(String) -> Item`. Same JVM type, therefore the same Dagger binding.
-        assertThat(generated).contains(
-            "public fun provideItemFactory(): Function1<String, Item> = test.provideItemFactory()",
-        )
+        assertThat(compiled.module)
+            .contains("public fun provideItemFactory(): (String) -> Item = test.provideItemFactory()")
     }
 
     @Test
-    fun `reports an error for suspend functions`() {
-        val (_, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
+    fun `provides top level properties`() {
+        val compiled = compileSuccessfully(
+            providers(
                 """
-                package test
+                import javax.inject.Named
+                import javax.inject.Singleton
 
-                import de.mafo.hilt.provider.Provide
+                class Config(val baseUrl: String)
 
                 @Provide
-                suspend fun provideValue(): String = "value"
-                """.trimIndent(),
+                @Singleton
+                val defaultConfig = Config("https://example.com")
+
+                @Provide
+                @Named("greeting")
+                val lazyGreeting: String by lazy { "hello" }
+                """,
             ),
         )
 
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
-        assertThat(result.messages).contains("does not support suspend functions")
+        assertThat(compiled.module).contains("public fun defaultConfig(): Config = test.defaultConfig")
+        assertThat(compiled.module).contains("""@Named(`value` = "greeting")""")
+        // A property read must reach the property, not the generated function of the same name.
+        assertThat(compiled.moduleObject().call("lazyGreeting")).isEqualTo("hello")
     }
 
     @Test
-    fun `reports an error for generic functions`() {
-        val (_, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
+    fun `disambiguates a property clashing with a function of the same name`() {
+        val compiled = compileSuccessfully(
+            providers(
                 """
-                package test
-
-                import de.mafo.hilt.provider.Provide
+                class Label(val text: String)
 
                 @Provide
-                fun <T> provideList(): List<T> = emptyList()
-                """.trimIndent(),
+                val label = Label("property")
+
+                @Provide
+                fun label(prefix: String): Label = Label(prefix)
+                """,
             ),
         )
 
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
-        assertThat(result.messages).contains("may not have type parameters")
+        assertThat(compiled.module).contains("public fun label(): Label = test.label")
+        assertThat(compiled.module)
+            .contains("public fun labelString(prefix: String): Label = test.label(prefix)")
     }
 
     @Test
-    fun `reports an error for var properties`() {
-        val (_, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
+    fun `forwards qualifier annotations to the provides function`() {
+        val compiled = compileSuccessfully(
+            providers(
                 """
-                package test
-
-                import de.mafo.hilt.provider.Provide
+                import javax.inject.Named
+                import javax.inject.Singleton
 
                 @Provide
-                var mutableValue: String = "value"
-                """.trimIndent(),
+                @Singleton
+                @Named("base-url")
+                fun provideBaseUrl(): String = "https://example.com"
+                """,
             ),
         )
 
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
-        assertThat(result.messages).contains("does not support 'var' properties")
-    }
-
-    @Test
-    fun `reports an error for private declarations`() {
-        val (_, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
-                """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-
-                @Provide
-                private fun provideValue(): String = "value"
-                """.trimIndent(),
-            ),
-        )
-
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
-        assertThat(result.messages).contains("must not be private")
-    }
-
-    @Test
-    fun `reports an error for extension functions`() {
-        val (_, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
-                """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-
-                class Config
-
-                @Provide
-                fun Config.provideValue(): String = "value"
-                """.trimIndent(),
-            ),
-        )
-
-        assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
-        assertThat(result.messages).contains("does not support extension functions")
+        assertThat(compiled.module).contains("@Singleton")
+        // KotlinPoet spells out the argument name and escapes `value`, since it is a soft keyword.
+        assertThat(compiled.module).contains("""@Named(`value` = "base-url")""")
+        assertThat(compiled.module).contains("@Provides")
+        // Our own marker must not leak into the generated code.
+        assertThat(compiled.module).doesNotContain("@Provide\n")
     }
 
     @Test
     fun `reports an error when the module name is already taken`() {
-        val (_, result) = compile(
-            SourceFile.kotlin(
-                "Providers.kt",
+        val result = compile(
+            providers(
                 """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-
                 class Providers_SingletonComponentModule
 
                 @Provide
                 fun provideValue(): String = "value"
-                """.trimIndent(),
+                """,
             ),
-        )
+        ).result
 
         assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
         assertThat(result.messages).contains("already declares a type with that name")
     }
 
-    @Test
-    fun `reports an error for member functions`() {
-        val (_, result) = compile(
-            SourceFile.kotlin(
-                "Holder.kt",
-                """
-                package test
-
-                import de.mafo.hilt.provider.Provide
-
-                class Holder {
-                    @Provide
-                    fun provideValue(): String = "value"
-                }
-                """.trimIndent(),
-            ),
-        )
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("rejections")
+    fun `reports an error for declarations the generated module could not reach`(
+        @Suppress("UNUSED_PARAMETER") case: String,
+        source: SourceFile,
+        expectedMessage: String,
+    ) {
+        val result = compile(source).result
 
         assertThat(result.exitCode).isEqualTo(KotlinCompilation.ExitCode.COMPILATION_ERROR)
-        assertThat(result.messages).contains("must be applied to top-level declarations")
+        assertThat(result.messages).contains(expectedMessage)
     }
 
-    private fun compile(vararg sources: SourceFile): Pair<KotlinCompilation, JvmCompilationResult> {
+    private fun compile(vararg sources: SourceFile): Compiled {
         val compilation = KotlinCompilation().apply {
             this.sources = sources.toList()
             inheritClassPath = true
             useKsp2()
             symbolProcessorProviders += HiltProviderProcessorProvider()
         }
-        return compilation to compilation.compile()
+        return Compiled(compilation, compilation.compile())
     }
 
-    private fun KotlinCompilation.generatedFile(relativePath: String): String {
-        val file = File(kspSourcesDir, "kotlin/$relativePath")
-        check(file.exists()) {
-            val found = kspSourcesDir.walkTopDown().filter(File::isFile).joinToString()
-            "Expected generated file $relativePath, found: $found"
+    private fun compileSuccessfully(vararg sources: SourceFile): Compiled =
+        compile(*sources).also { assertThat(it.result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK) }
+
+    private class Compiled(
+        private val compilation: KotlinCompilation,
+        val result: JvmCompilationResult,
+    ) {
+        /** The module generated for a source built via [providers]. */
+        val module: String get() = generatedFile("test/$DEFAULT_MODULE_NAME.kt")
+
+        fun generatedFile(relativePath: String): String {
+            val file = File(compilation.kspSourcesDir, "kotlin/$relativePath")
+            check(file.exists()) {
+                val found = compilation.kspSourcesDir.walkTopDown().filter(File::isFile).joinToString()
+                "Expected generated file $relativePath, found: $found"
+            }
+            return file.readText()
         }
-        return file.readText()
+
+        fun moduleObject(fqName: String = "test.$DEFAULT_MODULE_NAME"): ModuleObject {
+            val type = result.classLoader.loadClass(fqName)
+            return ModuleObject(type, type.getField("INSTANCE").get(null))
+        }
+    }
+
+    /** Reflective access to a generated `@Module object`. */
+    private class ModuleObject(private val type: Class<*>, private val instance: Any) {
+        /**
+         * Looks the method up by name alone – which doubles as a check that the generated module
+         * never holds two binding methods of the same name, exactly what Dagger forbids.
+         */
+        fun call(method: String, vararg arguments: Any): Any? =
+            type.declaredMethods.single { it.name == method }.invoke(instance, *arguments)
+    }
+
+    private companion object {
+        const val DEFAULT_MODULE_NAME = "Providers_SingletonComponentModule"
+
+        /** A `Providers.kt` in package `test` with `@Provide` already imported. */
+        fun providers(body: String): SourceFile = SourceFile.kotlin(
+            "Providers.kt",
+            """
+            package test
+
+            import de.mafo.hilt.provider.Provide
+
+            ${body.trimIndent()}
+            """.trimIndent(),
+        )
+
+        @JvmStatic
+        fun rejections(): List<Arguments> = listOf(
+            Arguments.of(
+                "member function",
+                providers(
+                    """
+                    class Holder {
+                        @Provide
+                        fun provideValue(): String = "value"
+                    }
+                    """,
+                ),
+                "must be applied to top-level declarations",
+            ),
+            Arguments.of(
+                "root package",
+                SourceFile.kotlin(
+                    "Root.kt",
+                    """
+                    import de.mafo.hilt.provider.Provide
+
+                    @Provide
+                    fun provideValue(): String = "value"
+                    """.trimIndent(),
+                ),
+                "must not live in the root package",
+            ),
+            Arguments.of(
+                "private function",
+                providers(
+                    """
+                    @Provide
+                    private fun provideValue(): String = "value"
+                    """,
+                ),
+                "must not be private",
+            ),
+            Arguments.of(
+                "extension function",
+                providers(
+                    """
+                    class Config
+
+                    @Provide
+                    fun Config.provideValue(): String = "value"
+                    """,
+                ),
+                "does not support extension declarations",
+            ),
+            Arguments.of(
+                "extension property",
+                providers(
+                    """
+                    class Config
+
+                    @Provide
+                    val Config.value: String get() = "value"
+                    """,
+                ),
+                "does not support extension declarations",
+            ),
+            Arguments.of(
+                "var property",
+                providers(
+                    """
+                    @Provide
+                    var mutableValue: String = "value"
+                    """,
+                ),
+                "does not support 'var' properties",
+            ),
+            Arguments.of(
+                "suspend function",
+                providers(
+                    """
+                    @Provide
+                    suspend fun provideValue(): String = "value"
+                    """,
+                ),
+                "does not support suspend functions",
+            ),
+            Arguments.of(
+                "generic function",
+                providers(
+                    """
+                    @Provide
+                    fun <T> provideList(): List<T> = emptyList()
+                    """,
+                ),
+                "may not have type parameters",
+            ),
+        )
     }
 }

@@ -17,14 +17,8 @@ dependencies {
 
 kotlin {
     compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
         optIn.add("com.google.devtools.ksp.KspExperimental")
     }
-}
-
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
 }
 
 // kotlin-compile-testing exposes the compiler plugin API in its DSL – test sources only.
