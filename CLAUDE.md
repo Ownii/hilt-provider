@@ -81,7 +81,10 @@ Diese Punkte sind bewusst so und beim Umbau leicht kaputtzumachen:
   über `PkgPrivateModuleGenerator` einen öffentlichen `HiltWrapper_…`, der unser Modul via
   `includes` einbindet. Im Android-Sample verifiziert.
 - Ungültige Symbole werden über `validate()` an die nächste KSP-Runde zurückgegeben (`process`
-  liefert die deferred-Liste).
+  liefert die deferred-Liste). Das ist kein Luxus: schaltet man die Deferral-Bedingung ab, endet ein
+  `@Provide` auf einen noch nicht generierten Typ in `INTERNAL_ERROR`. Der Test
+  `defers a whole file …` deckt das ab und ist genau so gegengeprüft — mit ausgeschaltetem Deferral
+  schlägt er fehl.
 
 ### Tests
 

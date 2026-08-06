@@ -4,6 +4,12 @@ import assertk.assertThat
 import assertk.assertions.contains
 import assertk.assertions.doesNotContain
 import assertk.assertions.isEqualTo
+import com.google.devtools.ksp.processing.Dependencies
+import com.google.devtools.ksp.processing.Resolver
+import com.google.devtools.ksp.processing.SymbolProcessor
+import com.google.devtools.ksp.processing.SymbolProcessorEnvironment
+import com.google.devtools.ksp.processing.SymbolProcessorProvider
+import com.google.devtools.ksp.symbol.KSAnnotated
 import com.tschuchort.compiletesting.JvmCompilationResult
 import com.tschuchort.compiletesting.KotlinCompilation
 import com.tschuchort.compiletesting.SourceFile
@@ -373,6 +379,50 @@ class HiltProviderProcessorTest {
         assertThat(compiled.module).contains("@ClassKey(`value` = LoginHandler::class)")
     }
 
+    /**
+     * A `@Provide` may reference a type another processor has yet to generate. In that round the
+     * declaration does not `validate()`, so the whole file has to wait: generating the resolvable
+     * half now and the rest in the next round would write the same file name twice. The pay-off is
+     * observable here — both declarations end up in one module and nothing fails.
+     */
+    @Test
+    fun `defers a whole file until another processor has generated the missing type`() {
+        val compiled = compileSuccessfully(
+            providers(
+                """
+                @Provide
+                fun provideReady(): String = "ready"
+
+                @Provide
+                fun provideGenerated(): GeneratedDependency = GeneratedDependency()
+                """,
+            ),
+            alsoRun = listOf(GeneratedDependencyProvider()),
+        )
+
+        assertThat(compiled.module).contains("public fun provideReady(): String = test.provideReady()")
+        assertThat(compiled.module)
+            .contains("public fun provideGenerated(): GeneratedDependency = test.provideGenerated()")
+    }
+
+    /** Emits `test.GeneratedDependency` in the first round, so round one cannot resolve it. */
+    private class GeneratedDependencyProvider : SymbolProcessorProvider {
+        override fun create(environment: SymbolProcessorEnvironment): SymbolProcessor =
+            object : SymbolProcessor {
+                private var emitted = false
+
+                override fun process(resolver: Resolver): List<KSAnnotated> {
+                    if (!emitted) {
+                        emitted = true
+                        environment.codeGenerator
+                            .createNewFile(Dependencies(aggregating = false), "test", "GeneratedDependency")
+                            .use { it.write("package test\n\nclass GeneratedDependency\n".toByteArray()) }
+                    }
+                    return emptyList()
+                }
+            }
+    }
+
     @Test
     fun `reports an error when the module name is already taken`() {
         val result = compile(
@@ -403,18 +453,25 @@ class HiltProviderProcessorTest {
         assertThat(result.messages).contains(expectedMessage)
     }
 
-    private fun compile(vararg sources: SourceFile): Compiled {
+    private fun compile(
+        vararg sources: SourceFile,
+        alsoRun: List<SymbolProcessorProvider> = emptyList(),
+    ): Compiled {
         val compilation = KotlinCompilation().apply {
             this.sources = sources.toList()
             inheritClassPath = true
             useKsp2()
             symbolProcessorProviders += HiltProviderProcessorProvider()
+            symbolProcessorProviders += alsoRun
         }
         return Compiled(compilation, compilation.compile())
     }
 
-    private fun compileSuccessfully(vararg sources: SourceFile): Compiled =
-        compile(*sources).also { assertThat(it.result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK) }
+    private fun compileSuccessfully(
+        vararg sources: SourceFile,
+        alsoRun: List<SymbolProcessorProvider> = emptyList(),
+    ): Compiled = compile(*sources, alsoRun = alsoRun)
+        .also { assertThat(it.result.exitCode).isEqualTo(KotlinCompilation.ExitCode.OK) }
 
     private class Compiled(
         private val compilation: KotlinCompilation,
