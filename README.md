@@ -34,6 +34,39 @@ Top-Level-`val`s funktionieren genauso; die generierte `@Provides`-Funktion lies
 val defaultTimeoutSeconds = 30
 ```
 
+## Verwendung
+
+Voraussetzung ist ein funktionierendes Hilt-Setup im Konsumentenmodul — dieses Plugin ergänzt Hilt,
+es ersetzt nichts davon:
+
+```kotlin
+plugins {
+    id("com.google.devtools.ksp")
+    id("com.google.dagger.hilt.android")
+}
+
+dependencies {
+    implementation("de.mafo.hilt:hilt-provider-annotations:0.1.0-SNAPSHOT")
+    ksp("de.mafo.hilt:hilt-provider-processor:0.1.0-SNAPSHOT")
+
+    implementation("com.google.dagger:hilt-android:2.60.1")
+    ksp("com.google.dagger:hilt-android-compiler:2.60.1")
+}
+```
+
+Das Annotations-Modul exponiert `hilt-core` als `api`, damit `SingletonComponent` und `@InstallIn`
+zum Kompilieren zur Verfügung stehen. Hilts **Compiler** ist damit nicht abgedeckt: ohne
+`hilt-android-compiler` im jeweiligen Modul werden die generierten `@Module`s von niemandem
+eingesammelt. In einem Mehr-Modul-Projekt gehört er in jedes Modul, das `@Provide` verwendet — nicht
+nur in das mit der Hilt-Root.
+
+Das Hilt-Gradle-Plugin dagegen braucht nur das Modul, in dem die Hilt-Root (`@HiltAndroidApp`) oder
+ein `@AndroidEntryPoint` liegt. Eine reine Library mit `@Provide`-Deklarationen kommt ohne aus — so
+gebaut in `sample-android:feature`.
+
+Danach genügt eine Top-Level-Deklaration, ein eigenes `@Module` ist nicht mehr nötig. Lokal
+installieren lässt sich das Plugin mit `./gradlew publishToMavenLocal`.
+
 ## Namensschema der generierten Module
 
 Ein Modul pro **Quelldatei und Component**, benannt nach der Datei:
@@ -74,22 +107,6 @@ Der Delegate-Aufruf zeigt weiterhin auf die Originalfunktion.
 Das Android-Sample braucht ein SDK; `local.properties` mit `sdk.dir=…` ist nicht eingecheckt.
 
 Generierter Code des Samples: `sample/build/generated/ksp/main/kotlin/...`
-
-## Verwendung
-
-```kotlin
-dependencies {
-    implementation("de.mafo.hilt:hilt-provider-annotations:0.1.0-SNAPSHOT")
-    ksp("de.mafo.hilt:hilt-provider-processor:0.1.0-SNAPSHOT")
-}
-```
-
-Hilt selbst kommt transitiv über das Annotations-Modul (`api`-Abhängigkeit auf `hilt-core`), muss
-also nicht zusätzlich deklariert werden. Lokal installieren:
-
-```bash
-./gradlew publishToMavenLocal
-```
 
 ## Aktueller Stand
 
@@ -169,3 +186,11 @@ Der Dagger-Graph wird bewusst **nicht** getestet — das wäre ein Test von Dagg
 der generierte Code exakt der erwarteten Form entspricht und beim Aufruf an die annotierte Funktion
 delegiert. Einmalig gegen `dagger-compiler` verifiziert wurde lediglich die Namensfrage bei
 Overloads: ohne Umbenennung bricht Dagger ab, mit Umbenennung entstehen kollisionsfreie Factories.
+
+## Lizenz und Wartung
+
+[Apache-2.0](LICENSE), Copyright 2026 Martin Förster.
+
+Das Projekt ist für ein konkretes Vorhaben entstanden und wird nach Bedarf gepflegt, nicht als
+Community-Projekt. Nutzung ist ausdrücklich erwünscht; Support, Roadmap oder eine zeitnahe
+Bearbeitung von Issues und Pull Requests sind damit aber nicht zugesagt.
