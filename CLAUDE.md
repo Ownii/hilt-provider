@@ -132,6 +132,23 @@ Nur `annotations` und `processor` wenden `maven-publish` an; die Konfiguration (
 `plugins.withId("maven-publish")`. Die Samples dürfen nie publiziert werden — deshalb Opt-in pro
 Modul statt `allprojects`.
 
+Ausgeliefert wird über **JitPack**, das einen Git-Tag auf Abruf baut. Zwei Dinge daran sind
+load-bearing:
+
+- **`jitpack.yml` ist Pflicht, nicht Kosmetik.** JitPack führt bei `maven-publish` von sich aus
+  `./gradlew build publishToMavenLocal` aus, was `sample-android` mitbaut — dort gibt es kein
+  Android-SDK. Der `install`-Block beschränkt den Lauf auf die beiden Library-Module; dass das ohne
+  SDK durchläuft, ist mit beiseitegelegter `local.properties` und ohne `ANDROID_HOME` geprüft (AGP
+  braucht sein SDK erst, wenn eine seiner Tasks im Graphen steht). Der Standard-JDK dort ist
+  OpenJDK 8, mit dem Gradle 9 nicht startet — daher `jdk: openjdk17`.
+- **`group` und `version` kommen aus der Umgebung** (`GROUP`, `VERSION`), die JitPack setzt, mit
+  `de.mafo.hilt` und `0.1.0-SNAPSHOT` als Default für lokale Builds. Die Koordinate, unter der
+  JitPack tatsächlich ausliefert, setzt es selbst und weicht ab:
+  `com.github.Ownii.hilt-provider:hilt-provider-annotations:<Tag>` — bei Mehr-Modul-Projekten hängt
+  der Repository-Name an der Group. Aus dem Build-Log abgelesen, nicht angenommen.
+- Der JitPack-Lauf führt **keine Tests** aus. Ein Tag ist damit kein Qualitätsnachweis; `./gradlew
+  build` gehört vor das Taggen.
+
 ## Build-Konventionen
 
 - Versionen ausschließlich über `gradle/libs.versions.toml` (Version Catalog, `libs.*`-Aliase).

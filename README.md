@@ -39,6 +39,20 @@ val defaultTimeoutSeconds = 30
 Voraussetzung ist ein funktionierendes Hilt-Setup im Konsumentenmodul — dieses Plugin ergänzt Hilt,
 es ersetzt nichts davon:
 
+Die Artefakte kommen über [JitPack](https://jitpack.io/#Ownii/hilt-provider), das Repository gehört
+also in `settings.gradle.kts` — und laut JitPack-Empfehlung an das **Ende** der Liste, weil Gradle
+die Repositories der Reihe nach durchgeht:
+
+```kotlin
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+```
+
 ```kotlin
 plugins {
     id("com.google.devtools.ksp")
@@ -46,13 +60,17 @@ plugins {
 }
 
 dependencies {
-    implementation("de.mafo.hilt:hilt-provider-annotations:0.1.0-SNAPSHOT")
-    ksp("de.mafo.hilt:hilt-provider-processor:0.1.0-SNAPSHOT")
+    implementation("com.github.Ownii.hilt-provider:hilt-provider-annotations:0.1.0")
+    ksp("com.github.Ownii.hilt-provider:hilt-provider-processor:0.1.0")
 
     implementation("com.google.dagger:hilt-android:2.60.1")
     ksp("com.google.dagger:hilt-android-compiler:2.60.1")
 }
 ```
+
+Die Group-ID ist von GitHub abgeleitet, nicht `de.mafo.hilt` — das setzt JitPack so, und bei einem
+Mehr-Modul-Projekt hängt der Repository-Name mit dran. Wechselt die Veröffentlichung später auf Maven
+Central, ändert sich die Koordinate entsprechend noch einmal.
 
 Das Annotations-Modul exponiert `hilt-core` als `api`, damit `SingletonComponent` und `@InstallIn`
 zum Kompilieren zur Verfügung stehen. Hilts **Compiler** ist damit nicht abgedeckt: ohne
@@ -64,9 +82,11 @@ Das Hilt-Gradle-Plugin dagegen braucht nur das Modul, in dem die Hilt-Root (`@Hi
 ein `@AndroidEntryPoint` liegt. Eine reine Library mit `@Provide`-Deklarationen kommt ohne aus — so
 gebaut in `sample-android:feature`.
 
-Danach genügt eine Top-Level-Deklaration, ein eigenes `@Module` ist nicht mehr nötig. Lokal
-installieren lässt sich das Plugin mit `./gradlew publishToMavenLocal`. Im Konsumentenprojekt muss
-`mavenLocal()` dann in `dependencyResolutionManagement` stehen — in den Standard-Repositories ist
+Danach genügt eine Top-Level-Deklaration, ein eigenes `@Module` ist nicht mehr nötig.
+
+Zum Entwickeln gegen einen ungetaggten Stand installiert `./gradlew publishToMavenLocal` die
+Artefakte als `de.mafo.hilt:hilt-provider-…:0.1.0-SNAPSHOT`. Dann braucht das Konsumentenprojekt
+`mavenLocal()` in `dependencyResolutionManagement` — in den Standard-Repositories ist
 `~/.m2/repository` nicht enthalten.
 
 ## Multibindings
@@ -184,10 +204,10 @@ Bereits umgesetzt:
 Noch offen:
 
 - Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
-- Veröffentlichung bleibt bewusst bei `mavenLocal`, solange die API Platzhalter ist. Für ein
-  Remote-Ziel käme hinzu: bei einer Package Registry ein Token, bei Maven Central zusätzlich
-  Namespace-Verifikation, GPG-Signierung und `url`/`scm`/`developers` im POM
-- CI ist zurückgestellt, bis das Projekt ein Remote hat
+- Wechsel auf **Maven Central**, wenn die API steht. Dann fallen an: Namespace-Verifikation (für
+  `de.mafo.hilt` die Domain `mafo.de`, sonst `io.github.ownii`), GPG-Signierung sowie `url`, `scm`
+  und `developers` im POM. Die Koordinate ändert sich dabei ein weiteres Mal
+- CI ist zurückgestellt; JitPack baut den Tag, prüft aber nicht die Tests
 
 ### Mehr-Modul-Fall
 
