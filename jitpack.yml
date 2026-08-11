@@ -1,0 +1,10 @@
+# JitPack would otherwise run `./gradlew build publishToMavenLocal`, which also builds
+# sample-android – and that needs an Android SDK the build machine does not have. Only the two
+# library modules are published; publishing them without an SDK is verified to work.
+#
+# The default JDK on JitPack is OpenJDK 8, which cannot run Gradle 9 at all.
+jdk:
+  - openjdk17
+
+install:
+  - ./gradlew :annotations:publishToMavenLocal :processor:publishToMavenLocal

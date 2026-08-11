@@ -10,8 +10,11 @@ plugins {
 }
 
 allprojects {
-    group = "de.mafo.hilt"
-    version = "0.1.0-SNAPSHOT"
+    // JitPack builds a tag and passes the coordinates it will serve under via the environment
+    // (GROUP is derived from the GitHub account, VERSION is the tag). Reading them here keeps the
+    // published artefacts findable there, while a local build stays at the values below.
+    group = providers.environmentVariable("GROUP").getOrElse("de.mafo.hilt")
+    version = providers.environmentVariable("VERSION").getOrElse("0.1.0-SNAPSHOT")
 }
 
 subprojects {
