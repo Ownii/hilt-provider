@@ -29,7 +29,8 @@ Generierten Code des Samples ansehen (schnellster Weg, eine Processor-Änderung 
 
 Drei Module, Abhängigkeitsrichtung `sample → processor → annotations`:
 
-- **`annotations`** — die öffentliche API-Fläche (`de.mafo.hilt.provider.Provide`). Exponiert
+- **`annotations`** — die öffentliche API-Fläche (`de.mafo.hilt.provider.Provide` plus das Enum
+  `Multibinding`). Exponiert
   `hilt-core` als `api`-Abhängigkeit, weil `SingletonComponent` als Default des
   `into`-Parameters Teil der Annotationssignatur ist.
 - **`processor`** — `HiltProviderProcessor` (KSP + KotlinPoet) plus `HiltProviderProcessorProvider`.
@@ -41,7 +42,10 @@ Drei Module, Abhängigkeitsrichtung `sample → processor → annotations`:
   Wegwerf-Proben geprüft, nicht dauerhaft im Build.
 - **`sample-android:feature` / `sample-android:app`** — der Mehr-Modul-Fall: `@Provide` in einer
   Android-Library, Hilt-Root in der App. Deckt ab, was das JVM-Sample nicht kann, nämlich Hilts
-  Aggregation über Modulgrenzen. Achtung: AGP 9 bringt Kotlin-Support eingebaut mit, das
+  Aggregation über Modulgrenzen — und, seit den Multibindings, über mehrere generierte Module
+  hinweg: `HomeEntry.kt`, `DetailEntry.kt` und `LegacyEntries.kt` binden in dasselbe
+  `Set<NavEntry>`. Die Injektionsstellen brauchen `@JvmSuppressWildcards`, sonst sucht Dagger nach
+  `Set<? extends NavEntry>`. Achtung: AGP 9 bringt Kotlin-Support eingebaut mit, das
   `kotlin-android`-Plugin darf hier **nicht** angewandt werden. `MainActivity` setzt Textfarbe,
   Hintergrund und `Gravity.CENTER` bewusst explizit: das Sample hat kein Theme (im Dark Mode wäre
   der Text sonst weiß auf hell) und `targetSdk 36` bedeutet Edge-to-Edge, wodurch Inhalt am oberen
@@ -68,10 +72,21 @@ Diese Punkte sind bewusst so und beim Umbau leicht kaputtzumachen:
   jetzt und der Rest in einer späteren KSP-Runde geschrieben, kollidierte der Dateiname.
 - **Alle Annotationen außer `@Provide` werden weitergegeben**, damit Scopes, Qualifier und Map-Keys
   unverändert funktionieren. **Ausnahme Multibindings**: `@IntoSet`, `@IntoMap` und
-  `@ElementsIntoSet` werden abgelehnt. Nicht weil das Weiterreichen scheitert, sondern weil die
-  Annotation auch auf der Ursprungsdeklaration stehen bleibt und dagger-compiler dort mit
-  `IllegalStateException: No enclosing TypeElement` abbricht — isoliert nachgewiesen. Die Erkennung
-  prüft erst den `shortName` und resolved nur Kandidaten.
+  `@ElementsIntoSet` an der Deklaration werden abgelehnt. Nicht weil das Weiterreichen scheitert,
+  sondern weil die Annotation auch auf der Ursprungsdeklaration stehen bleibt und dagger-compiler
+  dort mit `IllegalStateException: No enclosing TypeElement` abbricht — isoliert nachgewiesen. Die
+  Erkennung prüft erst den `shortName` und resolved nur Kandidaten.
+- **Multibindings laufen über `@Provide(multibinding = …)`** mit dem Enum `Multibinding`
+  (`None`/`IntoSet`/`ElementsIntoSet`/`IntoMap`). Die Enum-Einträge heißen wie die
+  Dagger-Annotationen, damit die Übersetzung ein `ClassName(MULTIBINDING_PACKAGE, name)` bleibt und
+  keine Mapping-Tabelle braucht, die auseinanderlaufen kann. Die Annotation entsteht erst an der
+  generierten Funktion, die in einem `object` liegt — genau deshalb funktioniert dort, was an der
+  Top-Level-Deklaration abstürzt. Achtung beim Lesen des Arguments: KSP liefert den Enum-Eintrag als
+  `KSClassDeclaration`, nicht als `KSType` wie bei `into` und nicht als Kotlin-Enum; empirisch
+  ermittelt (`KSClassDeclarationEnumEntryImpl`).
+- **`IntoMap` ohne Map-Key wird abgelehnt.** Die Prüfung sitzt in `toProvideTargetOrNull()` und ist
+  auf `IntoMap` gegated, kostet also für alle anderen Deklarationen nichts. Erkannt wird ein Map-Key
+  an Daggers Meta-Annotation `@MapKey`, damit eigene Keys mitzählen.
 - **`into` wird gegen `@DefineComponent` geprüft.** Hilts eingebaute Components tragen die
   Annotation selbst (im Bytecode von `SingletonComponent` nachgesehen), deshalb deckt eine Regel
   eingebaute und eigene Components ab, ohne pflegebedürftige Liste. KSP liest sie auch aus

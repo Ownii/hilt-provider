@@ -65,7 +65,50 @@ ein `@AndroidEntryPoint` liegt. Eine reine Library mit `@Provide`-Deklarationen 
 gebaut in `sample-android:feature`.
 
 Danach genügt eine Top-Level-Deklaration, ein eigenes `@Module` ist nicht mehr nötig. Lokal
-installieren lässt sich das Plugin mit `./gradlew publishToMavenLocal`.
+installieren lässt sich das Plugin mit `./gradlew publishToMavenLocal`. Im Konsumentenprojekt muss
+`mavenLocal()` dann in `dependencyResolutionManagement` stehen — in den Standard-Repositories ist
+`~/.m2/repository` nicht enthalten.
+
+## Multibindings
+
+Multibindings laufen über den Parameter `multibinding`, nicht über Daggers eigene Annotationen:
+
+```kotlin
+@Provide(multibinding = IntoSet)
+fun provideHomeEntry(): NavEntry = NavEntry("home")
+
+@Provide(multibinding = ElementsIntoSet)
+fun provideLegacyEntries(): Set<NavEntry> = setOf(NavEntry("legacy"), NavEntry("about"))
+
+@Provide(multibinding = IntoMap)
+@StringKey("login")
+fun provideLoginHandler(): Handler = LoginHandler()
+```
+
+Der Import ist `de.mafo.hilt.provider.Multibinding.IntoSet` — die Enum-Einträge heißen absichtlich
+wie die Dagger-Annotationen, in die der Processor sie übersetzt.
+
+**Warum nicht direkt `@IntoSet`?** Weil das Weiterreichen zwar funktioniert, die Annotation aber
+zusätzlich auf der Ursprungsdeklaration stehen bleibt — und Dagger beansprucht
+`dagger.multibindings.*` überall, wo sie auftaucht. Der zuständige Processing-Step will melden, dass
+hier ein `@Provides` fehlt, sucht dafür vorher den umschließenden Typ, und eine Top-Level-Funktion
+hat keinen. Selbst der Fehlerpfad bricht deshalb mit
+`java.lang.IllegalStateException: No enclosing TypeElement` ab, isoliert nachgewiesen ohne
+`@Provide`, ohne Modul und ohne Component. Auf der *generierten* Funktion ist dieselbe Annotation
+unproblematisch, weil sie dort in einem `object` liegt. `@Provide` lehnt die Dagger-Annotationen
+darum weiterhin ab und verweist auf den Parameter.
+
+Map-Keys (`@StringKey`, `@ClassKey`, eigene mit `@MapKey`) bleiben normale weitergereichte
+Annotationen. Fehlt bei `IntoMap` der Map-Key, meldet das der Processor — Dagger täte es sonst erst
+beim Zusammenbau des Components und dann gegen das generierte Modul.
+
+Auf der Injektionsseite braucht Kotlin `@JvmSuppressWildcards`, sonst passt der Typ nicht auf das,
+was Dagger gebunden hat:
+
+```kotlin
+@Inject lateinit var navEntries: Set<@JvmSuppressWildcards NavEntry>
+@Inject lateinit var handlers: Map<String, @JvmSuppressWildcards Handler>
+```
 
 ## Namensschema der generierten Module
 
@@ -121,6 +164,8 @@ Bereits umgesetzt:
 - `@InstallIn`-Component über den Annotationsparameter `into` (Default `SingletonComponent`). Der
   Typ muss `@DefineComponent` tragen — das gilt für Hilts eingebaute Components ebenso wie für
   eigene, eine hartkodierte Liste braucht es dafür nicht
+- Multibindings über den Parameter `multibinding` (`IntoSet`, `ElementsIntoSet`, `IntoMap`); die
+  Dagger-Annotation entsteht erst an der generierten Funktion, wo sie unproblematisch ist
 - Weitergabe aller übrigen Annotationen (Scopes, Qualifier, Map-Keys) an die `@Provides`-Methode.
   Gegen `dagger-compiler` verifiziert: ein `@Named`-Entry-Point löst das qualifizierte Binding auf,
   für Funktionen wie für `val`s. KotlinPoet schreibt den Argumentnamen dabei aus und escapt ihn
@@ -139,8 +184,6 @@ Bereits umgesetzt:
 Noch offen:
 
 - Parametername `into` vs. `installIn` (Überschneidung mit `@IntoSet`/`@IntoMap`)
-- Multibinding-Unterstützung über eine eigene API, falls gewünscht: Dagger-Annotationen können es
-  nicht leisten (siehe oben), eigene Marker, die der Processor übersetzt, könnten es
 - Veröffentlichung bleibt bewusst bei `mavenLocal`, solange die API Platzhalter ist. Für ein
   Remote-Ziel käme hinzu: bei einer Package Registry ein Token, bei Maven Central zusätzlich
   Namespace-Verifikation, GPG-Signierung und `url`/`scm`/`developers` im POM
@@ -165,6 +208,12 @@ Im generierten Component landet daraus eine vollständige Verdrahtung, inklusive
 Android 17) zeigt die App entsprechend `Hello from a library module (sample)` — beide Werte stammen
 aus dem Library-Modul, der Text aus der `@Provide`-Funktion, `(sample)` aus dem `@Provide val`.
 
+Dasselbe Sample deckt die Multibindings ab: `HomeEntry.kt`, `DetailEntry.kt` und `LegacyEntries.kt`
+binden in *dasselbe* `Set<NavEntry>`, liegen aber in drei Dateien und damit in drei generierten
+Modulen — Hilt führt sie zusammen. `Handlers.kt` steuert die `@IntoMap`-Seite bei. Verifiziert ist
+das über `assembleDebug`: dagger-compiler validiert den Graphen dabei vollständig, ein erneuter
+Gerätelauf steht noch aus.
+
 ### Bewusst nicht unterstützt
 
 Zwei Grenzen kommen von Dagger, nicht von uns — beide mit `dagger-compiler` nachgeprüft:
@@ -175,12 +224,13 @@ Zwei Grenzen kommen von Dagger, nicht von uns — beide mit `dagger-compiler` na
 - **Typparametrisierte Funktionen** (`fun <T> provideList(): List<T>`): Dagger lehnt mit
   *"@Provides methods may not have type parameters"* ab. Ein parametrisierter *Rückgabetyp* ist
   davon nicht betroffen und funktioniert.
-- **Multibindings** (`@IntoSet`, `@IntoMap`, `@ElementsIntoSet`): dagger-compiler bricht mit
-  `java.lang.IllegalStateException: No enclosing TypeElement` ab, sobald eine dieser Annotationen
-  auf einer Top-Level-Funktion steht — isoliert nachgewiesen, ohne `@Provide`, ohne Modul und ohne
-  Component. Das Weiterreichen funktioniert also, die Kombination ist trotzdem unbrauchbar, weil die
-  Annotation auf der Ursprungsdeklaration stehen bleibt. Der Processor lehnt sie deshalb mit
-  Erklärung ab. Map-Keys (`@StringKey`, `@ClassKey`) und Scopes sind nicht betroffen.
+- **Daggers Multibinding-Annotationen direkt an der Deklaration** (`@IntoSet`, `@IntoMap`,
+  `@ElementsIntoSet`): dagger-compiler bricht mit
+  `java.lang.IllegalStateException: No enclosing TypeElement` ab, sobald eine davon auf einer
+  Top-Level-Funktion steht — isoliert nachgewiesen, ohne `@Provide`, ohne Modul und ohne Component.
+  Der Processor lehnt sie ab und verweist auf `@Provide(multibinding = …)`, siehe
+  [Multibindings](#multibindings). Multibindings selbst sind also unterstützt, nur nicht auf diesem
+  Weg.
 
 Der Dagger-Graph wird bewusst **nicht** getestet — das wäre ein Test von Dagger. Geprüft wird, dass
 der generierte Code exakt der erwarteten Form entspricht und beim Aufruf an die annotierte Funktion

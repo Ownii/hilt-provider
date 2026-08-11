@@ -8,6 +8,8 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import dagger.hilt.android.AndroidEntryPoint
 import de.mafo.hilt.provider.sample.android.feature.Greeting
+import de.mafo.hilt.provider.sample.android.feature.Handler
+import de.mafo.hilt.provider.sample.android.feature.NavEntry
 import javax.inject.Inject
 import javax.inject.Named
 
@@ -22,9 +24,24 @@ class MainActivity : ComponentActivity() {
     @field:Named("build-flavour")
     lateinit var buildFlavour: String
 
+    /**
+     * Filled from two `@Provide(multibinding = IntoSet)` declarations in two files of the library
+     * module, so this also shows Hilt merging the two generated modules into one set.
+     *
+     * `@JvmSuppressWildcards` is required: Kotlin compiles `Set<NavEntry>` to
+     * `Set<? extends NavEntry>`, which is not the type Dagger bound.
+     */
+    @Inject
+    lateinit var navEntries: Set<@JvmSuppressWildcards NavEntry>
+
+    /** The `@IntoMap` counterpart, keyed by the forwarded `@StringKey`. */
+    @Inject
+    lateinit var handlers: Map<String, @JvmSuppressWildcards Handler>
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val injected = "${greeting.text} ($buildFlavour)"
+        val routes = navEntries.map(NavEntry::route).sorted()
+        val injected = "${greeting.text} ($buildFlavour)\nroutes: $routes\nhandlers: ${handlers.keys.sorted()}"
         // Logged as well as shown, so the injection can be verified without looking at the screen.
         Log.i("hilt-provider", "injected: $injected")
         setContentView(

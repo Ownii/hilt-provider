@@ -383,6 +383,101 @@ class HiltProviderProcessorTest {
     }
 
     /**
+     * The multibinding annotation cannot sit on the annotated declaration — see [rejections] — so it
+     * is named through `@Provide` and only materialises on the generated function, where it is
+     * enclosed by an `object` and therefore unproblematic for Dagger.
+     */
+    @Test
+    fun `turns a declared multibinding into the matching dagger annotation`() {
+        val compiled = compileSuccessfully(
+            providers(
+                """
+                import de.mafo.hilt.provider.Multibinding.IntoSet
+
+                class NavEntry
+
+                @Provide(multibinding = IntoSet)
+                fun provideHomeEntry(): NavEntry = NavEntry()
+                """,
+            ),
+        )
+
+        assertThat(compiled.module).isEqualTo(
+            """
+            package test
+
+            import dagger.Module
+            import dagger.Provides
+            import dagger.hilt.InstallIn
+            import dagger.hilt.components.SingletonComponent
+            import dagger.multibindings.IntoSet
+
+            @Module
+            @InstallIn(SingletonComponent::class)
+            internal object Providers_SingletonComponentModule {
+              @Provides
+              @IntoSet
+              public fun provideHomeEntry(): NavEntry = test.provideHomeEntry()
+            }
+
+            """.trimIndent(),
+        )
+    }
+
+    @Test
+    fun `contributes a whole collection with ElementsIntoSet`() {
+        val compiled = compileSuccessfully(
+            providers(
+                """
+                import de.mafo.hilt.provider.Multibinding.ElementsIntoSet
+
+                class NavEntry
+
+                @Provide(multibinding = ElementsIntoSet)
+                fun provideExtraEntries(): Set<NavEntry> = emptySet()
+                """,
+            ),
+        )
+
+        assertThat(compiled.module).contains(
+            """
+            |  @Provides
+            |  @ElementsIntoSet
+            |  public fun provideExtraEntries(): Set<NavEntry> = test.provideExtraEntries()
+            """.trimMargin(),
+        )
+    }
+
+    /** The map key stays an ordinary forwarded annotation and has to land on the same function. */
+    @Test
+    fun `combines IntoMap with a forwarded map key`() {
+        val compiled = compileSuccessfully(
+            providers(
+                """
+                import dagger.multibindings.StringKey
+                import de.mafo.hilt.provider.Multibinding.IntoMap
+
+                interface Handler
+                class LoginHandler : Handler
+
+                @Provide(multibinding = IntoMap)
+                @StringKey("login")
+                fun provideLoginHandler(): Handler = LoginHandler()
+                """,
+            ),
+        )
+
+        assertThat(compiled.module).contains(
+            """
+            |  @Provides
+            |  @IntoMap
+            |  @StringKey(`value` = "login")
+            |  public fun provideLoginHandler(): Handler = test.provideLoginHandler()
+            """.trimMargin(),
+        )
+    }
+
+    /**
      * A `@Provide` may reference a type another processor has yet to generate. In that round the
      * declaration does not `validate()`, so the whole file has to wait: generating the resolvable
      * half now and the rest in the next round would write the same file name twice. The pay-off is
@@ -625,7 +720,19 @@ class HiltProviderProcessorTest {
                     fun provideHandler(): String = "handler"
                     """,
                 ),
-                "Dagger rejects multibinding annotations on top-level declarations",
+                "Remove it and use @Provide(multibinding = IntoSet) instead",
+            ),
+            Arguments.of(
+                "IntoMap without a map key",
+                providers(
+                    """
+                    import de.mafo.hilt.provider.Multibinding.IntoMap
+
+                    @Provide(multibinding = IntoMap)
+                    fun provideHandler(): String = "handler"
+                    """,
+                ),
+                "requires a map key annotation",
             ),
             Arguments.of(
                 "generic function",

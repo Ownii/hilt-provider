@@ -9,6 +9,7 @@ import com.google.devtools.ksp.processing.Resolver
 import com.google.devtools.ksp.processing.SymbolProcessor
 import com.google.devtools.ksp.symbol.KSAnnotated
 import com.google.devtools.ksp.symbol.KSAnnotation
+import com.google.devtools.ksp.symbol.KSClassDeclaration
 import com.google.devtools.ksp.symbol.KSDeclaration
 import com.google.devtools.ksp.symbol.KSFile
 import com.google.devtools.ksp.symbol.KSFunctionDeclaration
@@ -28,6 +29,7 @@ import com.squareup.kotlinpoet.ksp.toAnnotationSpec
 import com.squareup.kotlinpoet.ksp.toClassNameOrNull
 import com.squareup.kotlinpoet.ksp.toTypeName
 import com.squareup.kotlinpoet.ksp.writeTo
+import de.mafo.hilt.provider.Multibinding
 import de.mafo.hilt.provider.Provide
 
 /**
@@ -98,8 +100,11 @@ internal class HiltProviderProcessor(
             // Forwarding the annotation is not the problem – it stays on the annotated declaration
             // as well, and dagger-compiler dies on that with an internal
             // "No enclosing TypeElement" error. Verified for @IntoSet, @IntoMap and
-            // @ElementsIntoSet; map keys such as @StringKey and scopes are unaffected.
-            reject("@Provide cannot be combined with ${annotation.shortName.asString()}: Dagger rejects multibinding annotations on top-level declarations. Write the @Module by hand for this binding.")
+            // @ElementsIntoSet; map keys such as @StringKey and scopes are unaffected. Hence
+            // `@Provide(multibinding = ...)`, which only ever materialises on the generated
+            // function, where an enclosing type exists.
+            val name = annotation.shortName.asString()
+            reject("@Provide cannot be combined with @$name: Dagger rejects multibinding annotations on top-level declarations. Remove it and use @Provide(multibinding = $name) instead.")
         }
 
         when (this) {
@@ -136,6 +141,7 @@ internal class HiltProviderProcessor(
     private class ProvideTarget(
         val declaration: KSDeclaration,
         val component: ClassName,
+        val multibinding: Multibinding,
         val forwardedAnnotations: List<AnnotationSpec>,
     ) {
         val originalName: String get() = declaration.simpleName.asString()
@@ -152,6 +158,7 @@ internal class HiltProviderProcessor(
         // working as usual.
         val (marker, forwarded) = annotations.partition { it.isProvideAnnotation() }
         val declaredComponent = marker.firstOrNull().declaredComponent()
+        val multibinding = marker.firstOrNull().declaredMultibinding()
 
         if (declaredComponent != null && !declaredComponent.isHiltComponent()) {
             logger.error(
@@ -162,10 +169,21 @@ internal class HiltProviderProcessor(
             )
             return null
         }
+        // Only paid for by IntoMap declarations. Dagger notices the missing key as well, but not
+        // before assembling the component, and then reports it against the generated module.
+        if (multibinding == Multibinding.IntoMap && forwarded.none { it.isMapKey() }) {
+            logger.error(
+                "@Provide(multibinding = IntoMap) requires a map key annotation such as " +
+                    "@StringKey or @ClassKey on the declaration.",
+                this,
+            )
+            return null
+        }
 
         return ProvideTarget(
             declaration = this,
             component = declaredComponent?.toClassNameOrNull() ?: SINGLETON_COMPONENT,
+            multibinding = multibinding,
             forwardedAnnotations = forwarded.map { it.toAnnotationSpec() },
         )
     }
@@ -237,6 +255,7 @@ internal class HiltProviderProcessor(
                     }
                 }
                 .addAnnotation(PROVIDES)
+                .apply { target.multibinding.annotation()?.let(::addAnnotation) }
                 .addAnnotations(target.forwardedAnnotations)
                 .delegateTo(target.declaration)
                 .build()
@@ -294,6 +313,29 @@ internal class HiltProviderProcessor(
         ?.value as? KSType
 
     /**
+     * The entry from `@Provide(multibinding = ...)`, or [Multibinding.None] when the default
+     * applies. KSP hands the entry out as its declaration — not as the Kotlin enum, even though the
+     * annotations artifact sits on the processor's own classpath — so unlike `into` it is a
+     * [KSClassDeclaration] rather than a [KSType].
+     */
+    private fun KSAnnotation?.declaredMultibinding(): Multibinding {
+        val entry = this
+            ?.arguments
+            ?.firstOrNull { it.name?.asString() == MULTIBINDING_ARGUMENT }
+            ?.value as? KSClassDeclaration
+            ?: return Multibinding.None
+        return Multibinding.valueOf(entry.simpleName.asString())
+    }
+
+    /**
+     * The Dagger annotation to put on the generated function. The entries of [Multibinding] are
+     * named after those annotations on purpose, which keeps this a lookup instead of a mapping that
+     * could fall out of sync.
+     */
+    private fun Multibinding.annotation(): ClassName? =
+        if (this == Multibinding.None) null else ClassName(MULTIBINDING_PACKAGE, name)
+
+    /**
      * Hilt's built-in components carry `@DefineComponent` themselves — verified in the bytecode of
      * `SingletonComponent` — so one rule covers built-in and custom components alike, without a
      * hardcoded list that would age.
@@ -306,6 +348,13 @@ internal class HiltProviderProcessor(
     private fun KSAnnotation.isProvideAnnotation(): Boolean =
         annotationType.resolve().declaration.qualifiedName?.asString() == PROVIDE_ANNOTATION
 
+    /** Map keys are recognised by Dagger's `@MapKey` meta-annotation, so custom ones count too. */
+    private fun KSAnnotation.isMapKey(): Boolean =
+        annotationType.resolve().declaration.annotations.any {
+            it.shortName.asString() == MAP_KEY_NAME &&
+                it.annotationType.resolve().declaration.qualifiedName?.asString() == MAP_KEY
+        }
+
     /**
      * The short name is checked first, which is free: only a candidate is resolved, so unrelated
      * annotations cost nothing here.
@@ -314,7 +363,7 @@ internal class HiltProviderProcessor(
         get() = annotations.firstOrNull {
             it.shortName.asString() in MULTIBINDING_ANNOTATIONS &&
                 it.annotationType.resolve().declaration.qualifiedName?.asString()
-                    ?.startsWith(MULTIBINDING_PACKAGE) == true
+                    ?.startsWith("$MULTIBINDING_PACKAGE.") == true
         }
 
     private val KSDeclaration.extensionReceiver: KSTypeReference?
@@ -344,14 +393,18 @@ internal class HiltProviderProcessor(
         /** Read off the annotation, so renaming it is a compile error rather than a silent no-op. */
         val PROVIDE_ANNOTATION: String = requireNotNull(Provide::class.java.canonicalName)
         val INTO_ARGUMENT: String = Provide::into.name
+        val MULTIBINDING_ARGUMENT: String = Provide::multibinding.name
 
         const val MODULE_SUFFIX = "Module"
 
         const val DEFINE_COMPONENT = "dagger.hilt.DefineComponent"
         const val DEFINE_COMPONENT_NAME = "DefineComponent"
 
-        const val MULTIBINDING_PACKAGE = "dagger.multibindings."
+        const val MULTIBINDING_PACKAGE = "dagger.multibindings"
         val MULTIBINDING_ANNOTATIONS = setOf("IntoSet", "IntoMap", "ElementsIntoSet")
+
+        const val MAP_KEY = "dagger.MapKey"
+        const val MAP_KEY_NAME = "MapKey"
 
         val MODULE = ClassName("dagger", "Module")
         val PROVIDES = ClassName("dagger", "Provides")
